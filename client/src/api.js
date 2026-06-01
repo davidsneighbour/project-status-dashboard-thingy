@@ -9,6 +9,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ priority }),
     }).then(json),
+  setChecked: (id, daysAgo = 0) =>
+    fetch(`/api/repos/${id}/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ daysAgo }),
+    }).then(json),
   touch: (id) => fetch(`/api/repos/${id}/touch`, { method: 'POST' }).then(json),
   setInactivity: (id, days) =>
     fetch(`/api/repos/${id}/inactivity`, {

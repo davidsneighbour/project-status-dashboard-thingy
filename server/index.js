@@ -3,11 +3,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import db from './db.js';
-import { fetchAllRepos } from './github.js';
+import { fetchAllRepos, rateLimit } from './github.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 const DEFAULT_INACTIVITY_DAYS = Number(process.env.DEFAULT_INACTIVITY_DAYS || 7);
+const SYNC_ON_STARTUP = process.env.SYNC_ON_STARTUP !== 'false';
+const SYNC_AUTO = process.env.SYNC_AUTO !== 'false';
+const SYNC_INTERVAL_MINUTES = Math.max(1, Number(process.env.SYNC_INTERVAL_MINUTES || 60));
 
 const app = express();
 app.use(express.json());
@@ -36,28 +39,37 @@ async function refreshRepos() {
   return repoCache;
 }
 
-// ---- Degradation rule ------------------------------------------------------
-// A repo assigned P1..P3 stays there until `inactivity_days` pass with no
-// triage activity, then it auto-degrades into the "Look again" column (4).
+// ---- Day bucket rule -------------------------------------------------------
+// Repos are grouped by how long ago they were checked.
+// Bucket 0 is "today" (needs attention now), larger bucket index means later.
+// DEFAULT_INACTIVITY_DAYS is the due age, so only N-1 future buckets exist.
+// With default=7: checked 0d/1d ago -> day-6, checked 7+d ago (or never) -> day-0.
 function effectiveState(state) {
-  const days = state.inactivity_days ?? DEFAULT_INACTIVITY_DAYS;
+  const repoDays = Math.max(0, Number(state.inactivity_days ?? DEFAULT_INACTIVITY_DAYS) || 0);
+  const maxFutureOffset = Math.max(0, DEFAULT_INACTIVITY_DAYS - 1);
 
-  if (state.priority == null) {
-    return { column: 'unsorted', effectivePriority: null, degraded: false, daysLeft: null };
-  }
-  if (state.priority_set_at) {
-    const ageDays = (Date.now() - new Date(state.priority_set_at).getTime()) / 86400000;
-    if (ageDays >= days) {
-      return { column: 'look-again', effectivePriority: 4, degraded: true, daysLeft: 0 };
-    }
+  if (!state.priority_set_at) {
     return {
-      column: `p${state.priority}`,
-      effectivePriority: state.priority,
-      degraded: false,
-      daysLeft: Math.max(0, Math.ceil(days - ageDays)),
+      column: 'day-0',
+      checkedAgeDays: null,
+      boardOffset: 0,
+      dueInDays: 0,
+      needsCheckToday: true,
     };
   }
-  return { column: `p${state.priority}`, effectivePriority: state.priority, degraded: false, daysLeft: days };
+
+  const ageDays = Math.max(0, (Date.now() - new Date(state.priority_set_at).getTime()) / 86400000);
+  const wholeDays = Math.floor(ageDays);
+  const rawOffset = repoDays - wholeDays;
+  const boardOffset = Math.max(0, Math.min(maxFutureOffset, rawOffset));
+
+  return {
+    column: `day-${boardOffset}`,
+    checkedAgeDays: wholeDays,
+    boardOffset,
+    dueInDays: Math.max(0, rawOffset),
+    needsCheckToday: rawOffset <= 0,
+  };
 }
 
 function buildPayload() {
@@ -86,6 +98,14 @@ const setPriorityStmt = db.prepare(`
     priority_set_at = excluded.priority_set_at,
     updated_at = excluded.updated_at
 `);
+const setCheckedStmt = db.prepare(`
+  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, updated_at)
+  VALUES (@id, @full_name, 1, @set_at, @now)
+  ON CONFLICT(repo_id) DO UPDATE SET
+    priority = 1,
+    priority_set_at = excluded.priority_set_at,
+    updated_at = excluded.updated_at
+`);
 const touchStmt = db.prepare(`UPDATE repo_state SET priority_set_at = ?, updated_at = ? WHERE repo_id = ?`);
 const inactivityStmt = db.prepare(`
   INSERT INTO repo_state (repo_id, full_name, inactivity_days, updated_at)
@@ -111,6 +131,7 @@ app.get('/api/repos', (req, res) => {
     defaultInactivityDays: DEFAULT_INACTIVITY_DAYS,
     username: process.env.GITHUB_USERNAME || null,
     tokenPresent: Boolean(process.env.GITHUB_TOKEN),
+    rateLimit: { ...rateLimit },
   });
 });
 
@@ -137,6 +158,27 @@ app.post('/api/repos/:id/priority', (req, res) => {
     priority,
     set_at: priority === null ? null : now,
     now,
+  });
+  res.json({ ok: true });
+});
+
+app.post('/api/repos/:id/check', (req, res) => {
+  const id = Number(req.params.id);
+  let { daysAgo } = req.body || {};
+  daysAgo = Number(daysAgo ?? 0);
+  if (!Number.isFinite(daysAgo) || daysAgo < 0) {
+    return res.status(400).json({ error: 'daysAgo must be a non-negative number' });
+  }
+
+  const now = new Date();
+  const checkedAt = new Date(now.getTime() - daysAgo * 86400000).toISOString();
+  const nowIso = now.toISOString();
+
+  setCheckedStmt.run({
+    id,
+    full_name: findRepo(id)?.full_name ?? null,
+    set_at: checkedAt,
+    now: nowIso,
   });
   res.json({ ok: true });
 });
@@ -176,11 +218,27 @@ if (fs.existsSync(publicDir)) {
 
 app.listen(PORT, async () => {
   console.log(`\n  Repo Triage Dashboard → http://localhost:${PORT}\n`);
-  try {
-    await refreshRepos();
-    console.log(`  Loaded ${repoCache.length} repositories from GitHub.`);
-  } catch (e) {
-    lastError = String(e.message || e);
-    console.warn(`  Initial GitHub fetch failed: ${lastError}`);
+  console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${SYNC_INTERVAL_MINUTES}m`);
+
+  if (SYNC_ON_STARTUP) {
+    try {
+      await refreshRepos();
+      console.log(`  Loaded ${repoCache.length} repositories from GitHub.`);
+    } catch (e) {
+      lastError = String(e.message || e);
+      console.warn(`  Initial GitHub fetch failed: ${lastError}`);
+    }
+  }
+
+  if (SYNC_AUTO) {
+    setInterval(async () => {
+      try {
+        await refreshRepos();
+        console.log(`  [auto-sync] Refreshed ${repoCache.length} repos from GitHub.`);
+      } catch (e) {
+        lastError = String(e.message || e);
+        console.warn(`  [auto-sync] GitHub fetch failed: ${lastError}`);
+      }
+    }, SYNC_INTERVAL_MINUTES * 60 * 1000);
   }
 });
