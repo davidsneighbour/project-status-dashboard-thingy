@@ -1,0 +1,9 @@
+{
+    "markdownlint.configFile": "./node_modules/@dnbhq/markdownlint-config/.markdownlint-cli2.jsonc",
+    "markdown.extension.toc.updateOnSave": true,
+    "markdown.extension.toc.unorderedList.marker": "*",
+    "markdown.extension.tableFormatter.enabled": false,
+    "cSpell.words": [
+        "triaging"
+    ]
+}

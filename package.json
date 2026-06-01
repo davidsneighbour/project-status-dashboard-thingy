@@ -1,0 +1,23 @@
+{
+  "name": "project-status-dashboard-thingy",
+  "version": "0.0.1",
+  "description": "A local-only dashboard that lists **all** your GitHub repositories as a kanban board and lets you triage them by priority.",
+  "homepage": "https://github.com/davidsneighbour/project-status-dashboard-thingy#readme",
+  "bugs": {
+    "url": "https://github.com/davidsneighbour/project-status-dashboard-thingy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidsneighbour/project-status-dashboard-thingy.git"
+  },
+  "license": "MIT",
+  "author": "Patrick Kollitsch <davidsneighbourdev+gh@gmail.com>",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@dnbhq/markdownlint-config": "0.2.7"
+  }
+}
