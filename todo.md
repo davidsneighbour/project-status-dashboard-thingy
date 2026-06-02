@@ -1,9 +1,9 @@
 ## Issues
 
-* [ ] when loading the page the first time show cached data immediately, then update when the API call returns
-* [ ] add Lucide icons for better visuals
-* [ ] add a help menu with F1 and connect with a Markdown file to show usage instructions. Make the display Mermaid enabled for diagrams and add initial help content.
-* [ ] find out and explicitly document what happens when we set a reminder duration larger than 7 days for any item. where is it shown? when will it decay? etc.
+* [x] when loading the page the first time show cached data immediately, then update when the API call returns
+* [x] add Lucide icons for better visuals
+* [x] add a help menu with F1 and connect with a Markdown file to show usage instructions. Make the display Mermaid enabled for diagrams and add initial help content.
+* [x] find out and explicitly document what happens when we set a reminder duration larger than 7 days for any item. where is it shown? when will it decay? etc.
 
 ## Prioritized next steps
 
@@ -30,9 +30,9 @@
 	* [x] define keyboard shortcut contract (`F1` opens help, `Esc` closes)
 	* [x] define markdown rendering and Mermaid initialization boundaries
 	* [x] add tests for open/close behavior and fallback when Mermaid parsing fails
-* [ ] for "reminder duration larger than 7 days":
-	* [ ] document exact behavior of `effectiveState` and board clamping
-	* [ ] add server unit tests for inactivity values `0`, `1`, `7`, `14`, `null`
+* [x] for "reminder duration larger than 7 days":
+	* [x] document exact behavior of `effectiveState` and board clamping
+	* [x] add server unit tests for inactivity values `0`, `1`, `7`, `14`, `null`
 
 ### P2 - Stability and regression protection
 
@@ -63,7 +63,7 @@
 * [x] server unit tests:
 	* [x] `effectiveState` for never checked, due, and future buckets
 	* [x] rate-limit parsing from synthetic response headers
-	* [ ] inactivity override behavior vs global default
+	* [x] inactivity override behavior vs global default
 
 ### Phase 3 - Behavior tests
 

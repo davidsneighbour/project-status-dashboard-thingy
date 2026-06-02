@@ -11,13 +11,13 @@ export const rateLimit = {
   authInvalid: false,// true after a 401 — set back to false on success
 };
 
-function parseRateLimitHeaders(res) {
+export function parseRateLimitHeaders(res, target = rateLimit) {
   const h = (k) => res.headers.get(k);
-  if (h('x-ratelimit-limit') !== null) rateLimit.limit = Number(h('x-ratelimit-limit'));
-  if (h('x-ratelimit-remaining') !== null) rateLimit.remaining = Number(h('x-ratelimit-remaining'));
-  if (h('x-ratelimit-used') !== null) rateLimit.used = Number(h('x-ratelimit-used'));
-  if (h('x-ratelimit-reset') !== null) rateLimit.reset = Number(h('x-ratelimit-reset'));
-  rateLimit.lastChecked = new Date().toISOString();
+  if (h('x-ratelimit-limit') !== null) target.limit = Number(h('x-ratelimit-limit'));
+  if (h('x-ratelimit-remaining') !== null) target.remaining = Number(h('x-ratelimit-remaining'));
+  if (h('x-ratelimit-used') !== null) target.used = Number(h('x-ratelimit-used'));
+  if (h('x-ratelimit-reset') !== null) target.reset = Number(h('x-ratelimit-reset'));
+  target.lastChecked = new Date().toISOString();
 }
 
 /**

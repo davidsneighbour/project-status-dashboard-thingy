@@ -15,7 +15,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run test:client && npm run test:server",
+    "test:client": "npm --prefix client run test",
+    "test:server": "npm --prefix server run test"
   },
   "dependencies": {
     "@dnbhq/markdownlint-config": "0.2.7"

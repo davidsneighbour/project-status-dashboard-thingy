@@ -62,6 +62,24 @@ Card actions:
 * **Move to Today** => moves immediately to Today
 * **Clear check date** => treated as never checked (Today)
 
+### Per-repo inactivity values larger than default
+
+When a repo override (`inactivity_days`) is greater than
+`DEFAULT_INACTIVITY_DAYS`, two things happen:
+
+* **Where it is shown:** The board still has only `DEFAULT_INACTIVITY_DAYS`
+    columns, so the repo is visually clamped to the furthest future column
+    (`day-(N-1)`).
+* **When it decays:** Internally, `dueInDays` keeps counting down from the
+    larger override value. Once the effective offset reaches `0` or below, the
+    repo returns to `day-0` (Today).
+
+Example with `DEFAULT_INACTIVITY_DAYS=7` and repo override `14`:
+
+* immediately after check: shown in `day-6`, `review in 14d`
+* after 8 days: still shown in `day-6`, `review in 6d`
+* at 14+ days age: shown in `day-0` (due today)
+
 ## Filtering model
 
 Each repo can independently be:

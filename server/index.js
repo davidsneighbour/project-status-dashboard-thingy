@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import db from './db.js';
 import { fetchAllRepos, rateLimit } from './github.js';
+import { effectiveState } from './schedule.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -39,39 +40,6 @@ async function refreshRepos() {
   return repoCache;
 }
 
-// ---- Day bucket rule -------------------------------------------------------
-// Repos are grouped by how long ago they were checked.
-// Bucket 0 is "today" (needs attention now), larger bucket index means later.
-// DEFAULT_INACTIVITY_DAYS is the due age, so only N-1 future buckets exist.
-// With default=7: checked 0d/1d ago -> day-6, checked 7+d ago (or never) -> day-0.
-function effectiveState(state) {
-  const repoDays = Math.max(0, Number(state.inactivity_days ?? DEFAULT_INACTIVITY_DAYS) || 0);
-  const maxFutureOffset = Math.max(0, DEFAULT_INACTIVITY_DAYS - 1);
-
-  if (!state.priority_set_at) {
-    return {
-      column: 'day-0',
-      checkedAgeDays: null,
-      boardOffset: 0,
-      dueInDays: 0,
-      needsCheckToday: true,
-    };
-  }
-
-  const ageDays = Math.max(0, (Date.now() - new Date(state.priority_set_at).getTime()) / 86400000);
-  const wholeDays = Math.floor(ageDays);
-  const rawOffset = repoDays - wholeDays;
-  const boardOffset = Math.max(0, Math.min(maxFutureOffset, rawOffset));
-
-  return {
-    column: `day-${boardOffset}`,
-    checkedAgeDays: wholeDays,
-    boardOffset,
-    dueInDays: Math.max(0, rawOffset),
-    needsCheckToday: rawOffset <= 0,
-  };
-}
-
 function buildPayload() {
   const states = db.prepare('SELECT * FROM repo_state').all();
   const byId = new Map(states.map((s) => [s.repo_id, s]));
@@ -84,7 +52,7 @@ function buildPayload() {
       inactivity_days: s.inactivity_days,
       effective_inactivity_days: s.inactivity_days ?? DEFAULT_INACTIVITY_DAYS,
       position: s.position ?? 0,
-      ...effectiveState(s),
+      ...effectiveState(s, DEFAULT_INACTIVITY_DAYS),
     };
   });
 }
