@@ -37,10 +37,10 @@
 ### P2 - Stability and regression protection
 
 * [ ] add API contract tests for all routes in `server/index.js` with valid + invalid payloads
-* [ ] add client API wrapper tests in `client/src/api.js` to verify method, path, and request body shape
-* [ ] add drag/drop behavior tests around `onDropColumn` and `onDropOnCard`
-* [ ] add localStorage filter persistence tests for migration and default fallback
-* [ ] add rate-limit/auth error rendering tests for all banner branches
+* [x] add client API wrapper tests in `client/src/api.js` to verify method, path, and request body shape
+* [x] add drag/drop behavior tests around `onDropColumn` and `onDropOnCard`
+* [x] add localStorage filter persistence tests for migration and default fallback
+* [x] add rate-limit/auth error rendering tests for all banner branches
 
 ## Automatic unit testing path (Vitest)
 
@@ -70,7 +70,7 @@
 * [ ] client behavior tests:
 	* [ ] loading states (`loading...`, `fetching repositories...`)
 	* [ ] menu actions call correct API wrappers
-	* [ ] sync button disabled on auth invalid / rate limit exhausted
+	* [x] sync button disabled on auth invalid / rate limit exhausted
 * [ ] server route tests:
 	* [ ] `POST /api/repos/:id/check` rejects negative days
 	* [ ] `POST /api/repos/:id/inactivity` rejects invalid values
