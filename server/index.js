@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import db from './db.js';
 import { fetchAllRepos, rateLimit } from './github.js';
 import { effectiveState } from './schedule.js';
@@ -184,29 +184,39 @@ if (fs.existsSync(publicDir)) {
   app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 }
 
-app.listen(PORT, async () => {
-  console.log(`\n  Repo Triage Dashboard → http://localhost:${PORT}\n`);
-  console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${SYNC_INTERVAL_MINUTES}m`);
+function startServer() {
+  app.listen(PORT, async () => {
+    console.log(`\n  Repo Triage Dashboard → http://localhost:${PORT}\n`);
+    console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${SYNC_INTERVAL_MINUTES}m`);
 
-  if (SYNC_ON_STARTUP) {
-    try {
-      await refreshRepos();
-      console.log(`  Loaded ${repoCache.length} repositories from GitHub.`);
-    } catch (e) {
-      lastError = String(e.message || e);
-      console.warn(`  Initial GitHub fetch failed: ${lastError}`);
-    }
-  }
-
-  if (SYNC_AUTO) {
-    setInterval(async () => {
+    if (SYNC_ON_STARTUP) {
       try {
         await refreshRepos();
-        console.log(`  [auto-sync] Refreshed ${repoCache.length} repos from GitHub.`);
+        console.log(`  Loaded ${repoCache.length} repositories from GitHub.`);
       } catch (e) {
         lastError = String(e.message || e);
-        console.warn(`  [auto-sync] GitHub fetch failed: ${lastError}`);
+        console.warn(`  Initial GitHub fetch failed: ${lastError}`);
       }
-    }, SYNC_INTERVAL_MINUTES * 60 * 1000);
-  }
-});
+    }
+
+    if (SYNC_AUTO) {
+      setInterval(async () => {
+        try {
+          await refreshRepos();
+          console.log(`  [auto-sync] Refreshed ${repoCache.length} repos from GitHub.`);
+        } catch (e) {
+          lastError = String(e.message || e);
+          console.warn(`  [auto-sync] GitHub fetch failed: ${lastError}`);
+        }
+      }, SYNC_INTERVAL_MINUTES * 60 * 1000);
+    }
+  });
+}
+
+// Only boot the HTTP server + sync loop when run directly (node index.js).
+// When imported by tests, the app is exported untouched so routes can be
+// exercised with supertest against an in-process instance.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) startServer();
+
+export { app, refreshRepos, buildPayload };
