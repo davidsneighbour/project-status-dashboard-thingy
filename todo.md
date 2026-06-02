@@ -26,10 +26,10 @@
 * [x] for "add Lucide icons":
 	* [x] add dependency and icon map plan (header status, card actions, filters)
 	* [x] add snapshot/DOM tests for icon presence and accessible labels
-* [ ] for "help menu with F1 + markdown + Mermaid":
-	* [ ] define keyboard shortcut contract (`F1` opens help, `Esc` closes)
-	* [ ] define markdown rendering and Mermaid initialization boundaries
-	* [ ] add tests for open/close behavior and fallback when Mermaid parsing fails
+* [x] for "help menu with F1 + markdown + Mermaid":
+	* [x] define keyboard shortcut contract (`F1` opens help, `Esc` closes)
+	* [x] define markdown rendering and Mermaid initialization boundaries
+	* [x] add tests for open/close behavior and fallback when Mermaid parsing fails
 * [ ] for "reminder duration larger than 7 days":
 	* [ ] document exact behavior of `effectiveState` and board clamping
 	* [ ] add server unit tests for inactivity values `0`, `1`, `7`, `14`, `null`

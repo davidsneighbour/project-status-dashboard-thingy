@@ -85,6 +85,23 @@ Examples:
 
 Filter settings persist in browser `localStorage`.
 
+## Help panel (F1)
+
+The dashboard ships with an in-app help panel backed by Markdown content.
+
+Keyboard contract:
+
+* `F1` opens the help panel.
+* `Esc` closes the help panel.
+
+Rendering boundaries:
+
+* Help content is loaded from `client/src/help.md`.
+* Markdown is rendered via `react-markdown` + `remark-gfm`.
+* Fenced `mermaid` code blocks are rendered as diagrams when Mermaid succeeds.
+* If Mermaid rendering fails, the panel shows a warning and keeps the Markdown
+    text visible.
+
 ## GitHub API behavior
 
 * Repo fetching is paginated (`/user/repos` or `/users/:username/repos`)

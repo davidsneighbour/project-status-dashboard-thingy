@@ -163,6 +163,22 @@ components:
     textColor: "{colors.text-secondary}"
     rounded: "{rounded.lg}"
     padding: 8px
+  # ---- Help affordances ---------------------------------------------------
+  help-trigger:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.md}"
+    padding: 6px 10px
+  help-dialog:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.lg}"
+    padding: 16px
+  help-mermaid-surface:
+    backgroundColor: "{colors.surface-subtle}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.md}"
+    padding: 12px
   # ---- Banner — auth error -------------------------------------------------
   banner-error:
     backgroundColor: "{colors.danger-bg}"

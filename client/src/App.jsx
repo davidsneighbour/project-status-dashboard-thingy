@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, GitFork, RefreshCw, Search, Settings2, User } from 'lucide-react';
+import { Archive, CircleHelp, GitFork, RefreshCw, Search, Settings2, User, X } from 'lucide-react';
+import mermaid from 'mermaid';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from './api.js';
 import { timeAgo, calendarLabel } from './lib/date.js';
 import { defaultFilters, filterRepos, buildDayColumns, groupRepos } from './lib/board.js';
+import helpMarkdown from './help.md?raw';
 
 const ACCENT = {
   neutral: { dot: 'bg-neutral-500', head: 'text-neutral-300', edge: 'border-neutral-800' },
@@ -53,6 +57,7 @@ const ICON = {
   sync: RefreshCw,
   search: Search,
   settings: Settings2,
+  help: CircleHelp,
   own: User,
   forks: GitFork,
   archived: Archive,
@@ -132,6 +137,109 @@ function CardMenu({ repo, defaultInactivity, onSetChecked, onClearCheck, onSetIn
           <p className="mt-1 px-1 text-[10px] text-neutral-600">Blank = default ({defaultInactivity}d)</p>
         </div>
       </div>
+    </>
+  );
+}
+
+function HelpDialog({ onClose }) {
+  const [mermaidError, setMermaidError] = useState(null);
+  const mermaidNodes = useMemo(() => [], []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const renderMermaid = async () => {
+      if (!mermaidNodes.length) {
+        setMermaidError(null);
+        return;
+      }
+
+      try {
+        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+        mermaidNodes.forEach((node, index) => {
+          node.removeAttribute('data-processed');
+          node.id = `help-mermaid-${index}-${Date.now()}`;
+        });
+        await mermaid.run({ nodes: mermaidNodes });
+        if (!cancelled) setMermaidError(null);
+      } catch {
+        if (!cancelled) {
+          setMermaidError('Unable to render Mermaid diagram. Markdown help is still available.');
+        }
+      }
+    };
+
+    renderMermaid();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mermaidNodes]);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-30 bg-neutral-950/80" onClick={onClose} />
+      <section className="fixed inset-x-4 top-6 z-40 mx-auto max-h-[88vh] max-w-3xl overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900">
+        <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-100">Help</h2>
+            <p className="text-[11px] text-neutral-500">Press Esc to close</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-neutral-700 bg-neutral-900 p-1.5 text-neutral-300 hover:bg-neutral-800"
+            aria-label="Close help"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="max-h-[calc(88vh-64px)] overflow-auto px-4 py-3 text-xs text-neutral-300">
+          {mermaidError && (
+            <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+              {mermaidError}
+            </div>
+          )}
+
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              h1: ({ children }) => <h3 className="mb-2 text-sm font-semibold text-neutral-100">{children}</h3>,
+              h2: ({ children }) => <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-400">{children}</h4>,
+              p: ({ children }) => <p className="mb-2 leading-relaxed text-neutral-300">{children}</p>,
+              ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 text-neutral-300">{children}</ul>,
+              li: ({ children }) => <li>{children}</li>,
+              code: ({ className, children }) => {
+                const match = /language-(\w+)/.exec(className || '');
+                const code = String(children).replace(/\n$/, '');
+
+                if (match?.[1] === 'mermaid') {
+                  return (
+                    <div className="mb-3 overflow-auto rounded-md border border-neutral-800 bg-neutral-950 p-3">
+                      <div
+                        ref={(node) => {
+                          if (node && !mermaidNodes.includes(node)) mermaidNodes.push(node);
+                        }}
+                        className="mermaid text-[11px]"
+                      >
+                        {code}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <code className="rounded bg-neutral-950 px-1 py-0.5 text-[11px] text-neutral-200">
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          >
+            {helpMarkdown}
+          </ReactMarkdown>
+        </div>
+      </section>
     </>
   );
 }
@@ -241,6 +349,7 @@ function Column({ col, repos, onDropColumn, ...cardProps }) {
 export default function App() {
   const SyncIcon = ICON.sync;
   const SearchIcon = ICON.search;
+  const HelpIcon = ICON.help;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -248,6 +357,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [q, setQ] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // ---- Visibility filters (persisted in localStorage) --------------------
   const FILTER_KEY = 'repo-triage-filters';
@@ -305,6 +415,21 @@ export default function App() {
       return () => clearTimeout(t);
     }
   }, [loading, data.cacheReady, load]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'F1') {
+        event.preventDefault();
+        setHelpOpen(true);
+      }
+      if (event.key === 'Escape') {
+        setHelpOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -385,6 +510,14 @@ export default function App() {
             </span>
           )}
           {data.lastFetch && <span className="text-[11px] text-neutral-600">synced {timeAgo(data.lastFetch)}</span>}
+          <button
+            onClick={() => setHelpOpen(true)}
+            className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+            aria-label="Open help"
+          >
+            <HelpIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            Help
+          </button>
           <button
             onClick={refresh}
             disabled={refreshing || data.rateLimit?.authInvalid || data.rateLimit?.remaining === 0}
@@ -492,6 +625,8 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }
