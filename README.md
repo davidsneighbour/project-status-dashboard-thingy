@@ -92,6 +92,22 @@ Filter settings persist in browser `localStorage`.
 * If token is invalid/expired (`401`), UI shows an auth error banner
 * If rate limit is exhausted, refresh is blocked until reset time
 
+## Cache-first startup behavior
+
+The client stores the latest successful board payload in browser `localStorage`
+(`repo-triage-board-cache-v1`). On next load:
+
+1. Cached board data is rendered immediately (if available).
+2. A background request fetches the latest API payload.
+3. The UI replaces cached content with the fresh response and updates cache.
+
+Acceptance criteria:
+
+* Existing cached repos are visible before the first API call resolves.
+* A short "showing cached board" hint is visible while refresh is in-flight.
+* Once the API returns, cached content is replaced by fresh payload data.
+* If no cache exists, startup behavior remains the normal loading state.
+
 ## Architecture
 
 ```plaintext

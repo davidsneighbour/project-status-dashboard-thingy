@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api.js';
+import { timeAgo, calendarLabel } from './lib/date.js';
+import { defaultFilters, filterRepos, buildDayColumns, groupRepos } from './lib/board.js';
 
 const ACCENT = {
   neutral: { dot: 'bg-neutral-500', head: 'text-neutral-300', edge: 'border-neutral-800' },
@@ -9,25 +11,41 @@ const ACCENT = {
 };
 
 const cx = (...a) => a.filter(Boolean).join(' ');
+const BOARD_CACHE_KEY = 'repo-triage-board-cache-v1';
 
-function timeAgo(iso) {
-  if (!iso) return 'never';
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  const units = [['y', 31536000], ['mo', 2592000], ['w', 604800], ['d', 86400], ['h', 3600], ['m', 60]];
-  for (const [u, secs] of units) if (s >= secs) return `${Math.floor(s / secs)}${u} ago`;
-  return 'just now';
+const EMPTY_DATA = {
+  repos: [],
+  cacheReady: false,
+  defaultInactivityDays: 7,
+  lastFetch: null,
+  username: null,
+  tokenPresent: true,
+  lastError: null,
+  rateLimit: null,
+};
+
+function readBoardCache() {
+  try {
+    const raw = localStorage.getItem(BOARD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.payload || !Array.isArray(parsed.payload.repos)) {
+      return null;
+    }
+    return parsed.payload;
+  } catch {
+    return null;
+  }
 }
 
-function calendarLabel(offset) {
-  if (offset === 0) return { title: 'Today', subtitle: 'needs review' };
-
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
-
-  if (offset === 1) return { title: weekday, subtitle: 'tomorrow' };
-  if (offset === 2) return { title: weekday, subtitle: 'day after tomorrow' };
-  return { title: weekday, subtitle: `in ${offset} days` };
+function writeBoardCache(payload) {
+  localStorage.setItem(
+    BOARD_CACHE_KEY,
+    JSON.stringify({
+      savedAt: new Date().toISOString(),
+      payload,
+    })
+  );
 }
 
 function Badge({ tone = 'neutral', children }) {
@@ -209,8 +227,9 @@ function Column({ col, repos, onDropColumn, ...cardProps }) {
 }
 
 export default function App() {
-  const [data, setData] = useState({ repos: [], cacheReady: false, defaultInactivityDays: 7, lastFetch: null, username: null, tokenPresent: true, lastError: null, rateLimit: null });
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
+  const [loading, setLoading] = useState(() => !readBoardCache());
+  const [showingCachedData, setShowingCachedData] = useState(() => Boolean(readBoardCache()));
   const [refreshing, setRefreshing] = useState(false);
   const [q, setQ] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -221,7 +240,6 @@ export default function App() {
   // own      = not a fork AND not archived
   // forks    = is a fork (regardless of archive state)
   // archived = is archived (regardless of fork state)
-  const defaultFilters = { showOwn: true, showForks: true, showArchived: true };
   const [filters, setFilters] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(FILTER_KEY));
@@ -255,6 +273,8 @@ export default function App() {
     try {
       const d = await api.list();
       setData(d);
+      setShowingCachedData(false);
+      writeBoardCache(d);
     } finally {
       setLoading(false);
     }
@@ -299,45 +319,15 @@ export default function App() {
   };
 
   const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    return data.repos.filter((r) => {
-      // Union: show if repo belongs to at least one checked category.
-      const isOwn = !r.fork && !r.archived;
-      const visible =
-        (filters.showOwn && isOwn) ||
-        (filters.showForks && r.fork) ||
-        (filters.showArchived && r.archived);
-      if (!visible) return false;
-      if (term && !`${r.name} ${r.description || ''} ${r.language || ''}`.toLowerCase().includes(term)) return false;
-      return true;
-    });
+    return filterRepos(data.repos, q, filters);
   }, [data.repos, q, filters]);
 
   const dayColumns = useMemo(() => {
-    const defaultDays = Math.max(0, Number(data.defaultInactivityDays) || 0);
-    const totalColumns = Math.max(1, defaultDays);
-    return Array.from({ length: totalColumns }, (_, offset) => {
-      const { title, subtitle } = calendarLabel(offset);
-      return {
-        key: `day-${offset}`,
-        title,
-        subtitle,
-        daysAgoTarget: Math.max(0, defaultDays - offset),
-        accent: offset === 0 ? 'rose' : offset < 3 ? 'amber' : 'sky',
-      };
-    });
+    return buildDayColumns(data.defaultInactivityDays, calendarLabel);
   }, [data.defaultInactivityDays]);
 
   const groups = useMemo(() => {
-    const g = Object.fromEntries(dayColumns.map((c) => [c.key, []]));
-
-    for (const r of filtered) {
-      const key = g[r.column] ? r.column : 'day-0';
-      g[key].push(r);
-    }
-
-    for (const k of Object.keys(g)) g[k].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
-    return g;
+    return groupRepos(filtered, dayColumns);
   }, [filtered, dayColumns]);
 
   const todayColumn = dayColumns[0];
@@ -452,7 +442,12 @@ export default function App() {
             {!data.tokenPresent && ' - no GITHUB_TOKEN found. Start with: docker compose --env-file ~/.env up'}
           </div>
         )}
-        {loading || !data.cacheReady ? (
+        {showingCachedData && (
+          <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/70 px-4 py-3 text-xs text-neutral-300">
+            Showing cached board while refreshing from GitHub.
+          </div>
+        )}
+        {loading || (!data.cacheReady && !showingCachedData) ? (
           <div className="grid h-40 place-items-center text-center text-sm text-neutral-600">
             <div>
               <div>{loading ? 'loading...' : 'fetching repositories from GitHub...'}</div>
