@@ -15,11 +15,18 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names server,client --prefix-colors blue,magenta \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "server": "npm --prefix server run dev",
     "test": "npm run test:client && npm run test:server",
     "test:client": "npm --prefix client run test",
     "test:server": "npm --prefix server run test"
   },
   "dependencies": {
     "@dnbhq/markdownlint-config": "0.2.7"
+  },
+  "devDependencies": {
+    "concurrently": "10.0.3"
   }
 }
