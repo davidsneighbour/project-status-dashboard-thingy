@@ -1,175 +1,140 @@
 # Repo·triage
 
-A local-only day-schedule kanban for your GitHub repositories. Every repo is
-placed in a day column based on when you last reviewed it. After
-`DEFAULT_INACTIVITY_DAYS` days without a check-in, the repo automatically
-returns to **Today** so nothing quietly rots.
+Repo·triage is a local-only day-schedule kanban for GitHub repositories. Every
+repo is placed in a day column by last review age. Once a repo reaches the due
+age (`DEFAULT_INACTIVITY_DAYS`), it returns to **Today** automatically.
 
-* Lists every repo for the configured account (public + private, live + archived)
-* **Day columns** — Today + one column per future day up to the review cycle length
-* Click a card's `···` menu to record a check, clear the check date, or set a per-repo review interval
-* **Drag a card** to a column to place it there in the schedule
-* Each repo can override the global review-cycle length
-* State stored in **SQLite**; repo list always fetched live from GitHub
-* React + Tailwind frontend, Express backend, one Docker container
+## Features
 
-## Run it
+* Day-based board: **Today + N-1 future weekday columns**
+* Drag-drop scheduling by day column
+* Per-repo review cycle override
+* Inclusive repository filtering (`own`, `forks`, `archived`)
+* Auto-sync with GitHub on startup and/or interval
+* Live GitHub API rate-limit status and token validity feedback
+* SQLite persistence for triage state only (repo catalog is always from GitHub)
 
-The token is read from your `~/.env` (which must contain `GITHUB_TOKEN=...`):
+## Quick start
+
+1. Copy `.env.example` to `.env` and set `GITHUB_TOKEN`.
+2. Run:
 
 ```bash
-docker compose --env-file ~/.env up --build
+docker compose --env-file .env up --build
 ```
 
-Then open [http://localhost:8787](http://localhost:8787)
+1. Open [http://localhost:8787](http://localhost:8787)
 
-> `--env-file ~/.env` lets Compose read the token from your home file without
-> copying it into the project. Alternatively, copy `.env.example` to `.env` here.
+## Environment variables
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `GITHUB_TOKEN` | yes | none | GitHub API auth token |
+| `GITHUB_USERNAME` | no | empty | If set, load only that user/org public repos |
+| `DEFAULT_INACTIVITY_DAYS` | no | `7` | Due age in days for returning a repo to Today |
+| `SYNC_ON_STARTUP` | no | `true` | Fetch GitHub repos when server starts |
+| `SYNC_AUTO` | no | `true` | Enable periodic background sync |
+| `SYNC_INTERVAL_MINUTES` | no | `60` | Sync interval minutes (min 1) |
+| `DATA_DIR` | no | `/data` in Docker, `./data` fallback | SQLite data directory |
 
 ### Token scopes
 
-* **Classic token:** needs the `repo` scope to read private repositories.
-* **Fine-grained token:** needs read access to repository metadata.
+* Classic token: `repo` scope for private repos
+* Fine-grained token: read access to repository metadata
 
-### Targeting a different account
+## Day-Schedule model
 
-Leave `GITHUB_USERNAME` blank to load *your* full set (the token owner's repos,
-including private + archived). Set it to a username/org to load that account's
-**public** repos only — GitHub never exposes someone else's private repos.
+`DEFAULT_INACTIVITY_DAYS` is the due-age threshold, not the number of
+degradation steps. The board displays exactly `DEFAULT_INACTIVITY_DAYS` columns:
 
-## How the day board works
+* `day-0`: **Today** (due now)
+* `day-1..day-(N-1)`: future weekday columns
 
-`DEFAULT_INACTIVITY_DAYS` (default `7`) is the **review cycle** — the number of
-days after which a repo is due for another look. The board always shows exactly
-`DEFAULT_INACTIVITY_DAYS` columns:
+Rules:
 
-| Column | Meaning |
-|---|---|
-| **Today** | Due now — either never checked, or last checked ≥ N days ago |
-| **Tomorrow** (weekday name) | Last checked 1 day ago; due in N−1 days |
-| … | … |
-| **Last future day** (weekday name) | Just checked today; due in N−1 days |
+* Never checked => Today
+* Checked age >= N days => Today
+* Checked age < N days => one of the future day columns
 
-A repo advances one column to the left per day and eventually lands back in
-**Today**. Dragging a card or using the menu explicitly places it in the target
-column. The **"Checked now"** action resets the clock to the furthest column;
-**"Move to Today"** pushes it back to Today immediately.
+Card actions:
 
-Per-repo overrides let individual repos have a longer or shorter review cycle
-than the global default.
+* **Checked now** => moves to furthest future column
+* **Move to Today** => moves immediately to Today
+* **Clear check date** => treated as never checked (Today)
 
-## Repository categories and filtering
+## Filtering model
 
-Every GitHub repository has two independent attributes that affect how it is
-categorised in the board:
+Each repo can independently be:
 
-| Attribute | Values |
-|---|---|
-| **Origin** | Own (you created it) vs Fork (copied from another repo) |
-| **State** | Live (active) vs Archived (read-only, frozen by you or GitHub) |
+* own or fork
+* live or archived
 
-These two attributes are orthogonal — a fork can be live or archived, and so
-can an own repo:
+Toolbar filters are **inclusive unions**. A repo is shown if it matches at
+least one enabled category:
 
-```mermaid
-flowchart LR
-    subgraph Origin
-        OWN[Own]
-        FORK[Fork]
-    end
-    subgraph State
-        LIVE[Live]
-        ARCH[Archived]
-    end
-    OWN  --> OWN_LIVE[own + live]
-    OWN  --> OWN_ARCH[own + archived]
-    FORK --> FOR_LIVE[fork + live]
-    FORK --> FOR_ARCH[fork + archived]
-```
+* `own`: non-fork and non-archived
+* `forks`: any fork (live or archived)
+* `archived`: any archived repo (own or fork)
 
-### Filter checkboxes
+Examples:
 
-The toolbar shows three **inclusive** checkboxes. A repo is visible if it
-matches **at least one** checked category:
+* `own` only => own live repos
+* `own + archived` => all non-fork repos (own live + own archived)
+* `forks` only => all fork repos (fork live + fork archived)
+* all enabled => all repos
 
-| Checkbox | Matches |
-|---|---|
-| **own** | repos that are neither a fork nor archived — your active, original work |
-| **forks** | repos that are forks, regardless of archive state |
-| **archived** | repos that are archived, regardless of fork state |
+Filter settings persist in browser `localStorage`.
 
-Because the filter is a union, combinations work intuitively:
+## GitHub API behavior
 
-```mermaid
-flowchart TD
-    OWN_CB([own ☑])
-    FORK_CB([forks ☑])
-    ARCH_CB([archived ☑])
+* Repo fetching is paginated (`/user/repos` or `/users/:username/repos`)
+* Rate-limit headers are tracked server-side and exposed in `GET /api/repos`
+* If token is invalid/expired (`401`), UI shows an auth error banner
+* If rate limit is exhausted, refresh is blocked until reset time
 
-    OWN_CB  -->|shows| OL[own + live repos]
-    FORK_CB -->|shows| FL[fork + live repos]
-    FORK_CB -->|shows| FA[fork + archived repos]
-    ARCH_CB -->|shows| OA[own + archived repos]
-    ARCH_CB -->|shows| FA
-
-    OL & FL & FA & OA -->|union| BOARD[Visible on board]
-```
-
-**Examples:**
-
-* Only **own** checked → shows your non-fork, non-archived repos only
-* **own** + **archived** checked → shows all non-fork repos (own-live + own-archived)
-* **own** + **forks** checked → shows all live repos (own-live + fork-live + fork-archived)
-* All three checked → everything visible (equivalent to **show all**)
-
-Filter state is saved in `localStorage` and survives browser restarts. The
-**show all** button appears whenever any filter is off, and resets all three to
-checked in one click.
-
-## GitHub sync
-
-| Variable | Default | Description |
-|---|---|---|
-| `SYNC_ON_STARTUP` | `true` | Fetch repos from GitHub when the server starts |
-| `SYNC_AUTO` | `true` | Re-sync automatically on a schedule |
-| `SYNC_INTERVAL_MINUTES` | `60` | How often auto-sync fires (minimum 1) |
-
-The header shows a live `API remaining/limit` counter. It turns amber below 100
-requests and red at zero. The sync button is disabled while the rate limit is
-exhausted or when the token is detected as invalid.
-
-## Data & persistence
-
-SQLite lives in `./data/dashboard.db` (mounted as `/data` in the container), so
-your triage state survives rebuilds. Only triage state is stored locally; the
-repo list is never cached to disk.
-
-## Local development (without Docker)
-
-```bash
-# terminal 1 — backend on :8787
-cd server && npm install && GITHUB_TOKEN=ghp_... npm run dev
-
-# terminal 2 — frontend on :5173 (proxies /api to :8787)
-cd client && npm install && npm run dev
-```
-
-## Layout
+## Architecture
 
 ```plaintext
-server/   Express API + SQLite + GitHub fetch
-client/   Vite + React + Tailwind UI
-Dockerfile / docker-compose.yml
+server/
+    index.js   Express API, schedule computation, sync loop
+    github.js  GitHub API client + rate-limit/auth state
+    db.js      SQLite schema and connection
+
+client/
+    src/App.jsx  Single-page UI (board, filters, drag/drop, menus)
+    src/api.js   Fetch wrappers for API routes
 ```
 
 ## API
 
 | Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/repos` | Repos merged with triage state + rate-limit snapshot |
-| POST | `/api/refresh` | Re-fetch repo list from GitHub |
-| POST | `/api/repos/:id/check` | `{ daysAgo }` — record a check N days in the past |
-| POST | `/api/repos/:id/priority` | `{ priority: 1\|null }` — low-level set (also clears check date) |
-| POST | `/api/repos/:id/touch` | Reset check timestamp without changing position |
-| POST | `/api/repos/:id/inactivity` | `{ days: number\|null }` — per-repo review cycle override |
-| POST | `/api/reorder` | `{ orderedIds: [...] }` — save column sort order |
+| --- | --- | --- |
+| GET | `/api/repos` | Board payload + sync/rate-limit status |
+| POST | `/api/refresh` | Trigger manual GitHub refresh |
+| POST | `/api/repos/:id/check` | `{ daysAgo }` set effective last-check age |
+| POST | `/api/repos/:id/inactivity` | `{ days }` set per-repo review-cycle override |
+| POST | `/api/repos/:id/priority` | Legacy low-level state setter (used for clear) |
+| POST | `/api/repos/:id/touch` | Reset `priority_set_at` to now |
+| POST | `/api/reorder` | Persist column order |
+
+## Release notes (prototype)
+
+The prototype is release-ready for local/self-hosted use with:
+
+* persistent triage state
+* robust GitHub auth/rate-limit handling
+* configurable sync policy
+* complete design contract in `DESIGN.md`
+* agent tooling contract in `AGENTS.md` and `.github/copilot-instructions.md`
+
+## Development
+
+```bash
+# backend
+cd server && npm install && npm run dev
+
+# frontend
+cd client && npm install && npm run dev
+```
+
+No test suite exists yet.
