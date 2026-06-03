@@ -6,10 +6,17 @@ export function effectiveState(state, defaultInactivityDays = 7, nowMs = Date.no
     const repoDays = Math.max(0, Number(state.inactivity_days ?? defaultInactivityDays) || 0);
     const maxFutureOffset = Math.max(0, defaultInactivityDays - 1);
 
+    // "Checked Nd ago" reflects when the repo was ACTUALLY reviewed, which is
+    // independent of priority_set_at — that anchor is back-dated to position a
+    // card in a future column, so it must not drive the checked-age display.
+    const checkedAgeDays = state.checked_at
+        ? Math.max(0, Math.floor((nowMs - new Date(state.checked_at).getTime()) / 86400000))
+        : null;
+
     if (!state.priority_set_at) {
         return {
             column: 'day-0',
-            checkedAgeDays: null,
+            checkedAgeDays,
             boardOffset: 0,
             dueInDays: 0,
             needsCheckToday: true,
@@ -23,7 +30,7 @@ export function effectiveState(state, defaultInactivityDays = 7, nowMs = Date.no
 
     return {
         column: `day-${boardOffset}`,
-        checkedAgeDays: wholeDays,
+        checkedAgeDays,
         boardOffset,
         dueInDays: Math.max(0, rawOffset),
         needsCheckToday: rawOffset <= 0,

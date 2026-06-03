@@ -33,6 +33,22 @@ describe('effectiveState', () => {
         expect(state.dueInDays).toBe(14);
     });
 
+    it('derives checkedAgeDays from checked_at, independent of the back-dated anchor', () => {
+        // Back-dated 6 days to land in a future column, but reviewed right now.
+        const anchor = new Date(nowMs - 6 * 86400000).toISOString();
+        const checked = new Date(nowMs).toISOString();
+        const state = effectiveState({ priority_set_at: anchor, checked_at: checked, inactivity_days: 7 }, 7, nowMs);
+        expect(state.column).toBe('day-1');
+        expect(state.checkedAgeDays).toBe(0);
+    });
+
+    it('reports checkedAgeDays null when scheduled but never actually checked', () => {
+        const anchor = new Date(nowMs - 7 * 86400000).toISOString();
+        const state = effectiveState({ priority_set_at: anchor, checked_at: null, inactivity_days: 7 }, 7, nowMs);
+        expect(state.column).toBe('day-0');
+        expect(state.checkedAgeDays).toBeNull();
+    });
+
     it('supports inactivity values 0, 1, 7, 14 and null', () => {
         const checkedAt = new Date(nowMs).toISOString();
 

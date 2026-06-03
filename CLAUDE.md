@@ -68,7 +68,8 @@ set in each `vitest.config.js` and fail the run on regression.
 | Variable | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `GITHUB_TOKEN` | yes | none | Classic token needs `repo` scope for private repos |
-| `GITHUB_USERNAME` | no | empty | Blank = token owner's full set; set = that user/org public repos |
+| `GITHUB_OWNERS` | no | empty | Users/orgs to load. Comma list or JSON array. Blank = token owner's full set. Own login / member orgs include private; other users/orgs are public-only (warning shown) |
+| `GITHUB_USERNAME` | no | empty | Deprecated single-owner alias for `GITHUB_OWNERS` (used only when `GITHUB_OWNERS` is unset) |
 | `DEFAULT_INACTIVITY_DAYS` | no | `7` | Due age in days for Today |
 | `SYNC_ON_STARTUP` | no | `true` | Startup GitHub sync |
 | `SYNC_AUTO` | no | `true` | Interval GitHub sync |
@@ -80,7 +81,7 @@ set in each `vitest.config.js` and fail the run on regression.
 ### Backend (`server/`)
 
 * `index.js`: Express app, in-memory `repoCache`, schedule logic (`effectiveState`), sync loop.
-* `github.js`: GitHub API pagination, auth-invalid detection, rate-limit state parsing.
+* `github.js`: GitHub API pagination, multi-owner loading (`parseOwners` + per-owner fetch with org-membership detection), auth-invalid detection, rate-limit state parsing, non-fatal `sourceStatus.warnings`.
 * `db.js`: SQLite setup and schema for `repo_state`.
 
 ### Data model

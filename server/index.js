@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import db from './db.js';
-import { fetchAllRepos, rateLimit } from './github.js';
+import { fetchAllRepos, rateLimit, sourceStatus, parseOwners } from './github.js';
 import { effectiveState } from './schedule.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,22 +97,27 @@ function buildPayload() {
 
 // ---- Prepared statements ---------------------------------------------------
 const setPriorityStmt = db.prepare(`
-  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, updated_at)
-  VALUES (@id, @full_name, @priority, @set_at, @now)
+  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, checked_at, updated_at)
+  VALUES (@id, @full_name, @priority, @set_at, @checked_at, @now)
   ON CONFLICT(repo_id) DO UPDATE SET
     priority = excluded.priority,
     priority_set_at = excluded.priority_set_at,
+    checked_at = excluded.checked_at,
     updated_at = excluded.updated_at
 `);
 const setCheckedStmt = db.prepare(`
-  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, updated_at)
-  VALUES (@id, @full_name, 1, @set_at, @now)
+  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, checked_at, updated_at)
+  VALUES (@id, @full_name, 1, @set_at, @checked_at, @now)
   ON CONFLICT(repo_id) DO UPDATE SET
     priority = 1,
     priority_set_at = excluded.priority_set_at,
+    -- Only record a real review (checked_at = now) when this lands the card in a
+    -- future column; a null means "make due" and must keep the prior checked_at.
+    checked_at = COALESCE(excluded.checked_at, repo_state.checked_at),
     updated_at = excluded.updated_at
 `);
-const touchStmt = db.prepare(`UPDATE repo_state SET priority_set_at = ?, updated_at = ? WHERE repo_id = ?`);
+const getInactivityStmt = db.prepare('SELECT inactivity_days FROM repo_state WHERE repo_id = ?');
+const touchStmt = db.prepare(`UPDATE repo_state SET priority_set_at = ?, checked_at = ?, updated_at = ? WHERE repo_id = ?`);
 const inactivityStmt = db.prepare(`
   INSERT INTO repo_state (repo_id, full_name, inactivity_days, updated_at)
   VALUES (@id, @full_name, @days, @now)
@@ -152,6 +157,8 @@ app.get('/api/repos', (req, res) => {
     lastError,
     defaultInactivityDays: DEFAULT_INACTIVITY_DAYS,
     username: process.env.GITHUB_USERNAME || null,
+    owners: parseOwners(process.env.GITHUB_OWNERS ?? process.env.GITHUB_USERNAME),
+    sourceWarnings: [...sourceStatus.warnings],
     tokenPresent: Boolean(process.env.GITHUB_TOKEN),
     rateLimit: { ...rateLimit },
   });
@@ -176,6 +183,8 @@ app.post('/api/repos/:id/priority', (req, res) => {
     full_name: findRepo(id)?.full_name ?? null,
     priority,
     set_at: priority === null ? null : now,
+    // Clearing the check date also clears the real review timestamp.
+    checked_at: priority === null ? null : now,
     now,
   });
   res.json({ ok: true });
@@ -190,22 +199,30 @@ app.post('/api/repos/:id/check', (req, res) => {
   }
 
   const now = new Date();
-  const checkedAt = new Date(now.getTime() - daysAgo * 86400000).toISOString();
+  const anchorAt = new Date(now.getTime() - daysAgo * 86400000).toISOString();
   const nowIso = now.toISOString();
+
+  // The card lands in a future column iff daysAgo is below its review interval.
+  // That means "I reviewed it now, resurface later" → stamp the real check time.
+  // Otherwise it lands in Today ("make this due") → leave checked_at untouched.
+  const effectiveInactivity = getInactivityStmt.get(id)?.inactivity_days ?? DEFAULT_INACTIVITY_DAYS;
+  const isReview = daysAgo < effectiveInactivity;
 
   setCheckedStmt.run({
     id,
     full_name: findRepo(id)?.full_name ?? null,
-    set_at: checkedAt,
+    set_at: anchorAt,
+    checked_at: isReview ? nowIso : null,
     now: nowIso,
   });
   res.json({ ok: true });
 });
 
-// "I looked" — keeps the assigned priority but resets the inactivity timer.
+// "I looked" — keeps the assigned priority but resets the inactivity timer and
+// records a real review.
 app.post('/api/repos/:id/touch', (req, res) => {
   const now = new Date().toISOString();
-  touchStmt.run(now, now, Number(req.params.id));
+  touchStmt.run(now, now, now, Number(req.params.id));
   res.json({ ok: true });
 });
 

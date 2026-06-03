@@ -126,6 +126,16 @@ components:
   badge-ignored:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text-muted}"
+  # ---- Repo owner indicator -----------------------------------------------
+  # Identity, not urgency. The dot/stripe colour comes from the categorical
+  # owner palette (see Colors → Owner palette) and is applied via inline style
+  # because the owner set is dynamic; the pill itself stays neutral.
+  badge-owner:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-secondary}"
+  card-owner-stripe:
+    # 3px left edge on the card, coloured from the owner palette.
+    width: 3px
   # ---- Buttons -------------------------------------------------------------
   button-primary:
     backgroundColor: "{colors.surface}"
@@ -291,6 +301,25 @@ Violet (`#8b5cf6` / dim `#c4b5fd`) is used exclusively for programming-language
 badges. It carries no urgency meaning and must not be used in structural
 components.
 
+### Owner palette (categorical identity)
+
+When the board loads repos from more than one owner (see `GITHUB_OWNERS`), each
+repo card carries an owner indicator. Its colour is **categorical identity**,
+not urgency — it groups cards by owner and intentionally sits outside the
+semantic rose/amber/sky system.
+
+* A small, fixed palette of muted hues is hashed deterministically from the
+  owner login, so a given owner always gets the same colour.
+* It is the **only** place colour is chosen dynamically, so it is applied via
+  inline `style` (hex), not Tailwind classes — this is a deliberate, documented
+  exception to the "no dynamic class names" rule, because the owner set is
+  unbounded and cannot be statically enumerated.
+* Reserved semantic hues (rose = today, amber = near, sky = future, emerald =
+  public, violet = language) are avoided in the owner palette so identity colour
+  never reads as an urgency or status signal.
+* The palette lives in `App.jsx` as `OWNER_PALETTE`; update this section if it
+  changes.
+
 ## Typography
 
 A single typeface — **IBM Plex Mono** — loaded from the system or CDN. Fall back
@@ -455,6 +484,22 @@ because "ignored" is likewise a quiet, non-urgent state, not a new accent.
 Ignored repos are hidden from the board by default, so this badge is only ever
 visible while the global **show ignored** toggle is on.
 
+### Repo owner indicator
+
+Shown only when the board contains repos from **more than one distinct owner**
+(single-owner setups already name the owner in the header, so the card stays
+uncluttered). It has two parts, both coloured from the owner palette:
+
+* **Owner stripe** — a `3px` left edge on the card (`card-owner-stripe`),
+  replacing that edge's neutral border colour with the owner's palette colour.
+  Reads as a quiet grouping cue down the left side of a column.
+* **Owner badge** — the first chip in the card's badge row (`badge-owner`): a
+  neutral pill with a small leading colour dot (palette colour) and the owner
+  login in `body-sm`. The pill is neutral; only the dot carries colour.
+
+Read-only, like all badges. The colour is identity, never urgency — see
+Colors → Owner palette. Do not add a second colour to the pill body.
+
 ### CardMenu (popover)
 
 Appears on `···` click. Fixed-width `256px`. Rendered through a portal to
@@ -537,6 +582,9 @@ Full-width alerts in the board area (above the columns). Two variants:
   `border-danger/60`.
 * **Warning** (rate limit): `warning-bg` background, `accent-near-dim` text,
   `border-warning/40`.
+* **Source warning** (owner access fell back to public, or an owner failed to
+  load): uses the same **Warning** variant. Lists `sourceWarnings` from the API
+  one per line. Non-fatal — the board still renders the repos that did load.
 
 Banners are mutually exclusive with normal board rendering — they appear above
 it, not instead of it.

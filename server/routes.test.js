@@ -18,8 +18,10 @@ vi.mock('./github.js', () => ({
   rateLimit: {
     limit: 5000, remaining: 4999, used: 1, reset: null, lastChecked: null, authInvalid: false,
   },
+  sourceStatus: { owners: [], warnings: [] },
   fetchAllRepos: vi.fn(),
   parseRateLimitHeaders: vi.fn(),
+  parseOwners: (raw) => (raw ? String(raw).split(/[\s,]+/).filter(Boolean) : []),
 }));
 
 const { fetchAllRepos } = await import('./github.js');
@@ -78,6 +80,31 @@ describe('POST /api/repos/:id/check', () => {
     const board = await request(app).get('/api/repos');
     const repo = board.body.repos.find((r) => r.id === REPO.id);
     expect(repo.column).toBe('day-0');
+  });
+});
+
+describe('checked_at reflects the real review time, not the scheduling anchor', () => {
+  beforeAll(async () => {
+    // Ensure the default 7-day interval so daysAgo maps to the expected column.
+    await request(app).post(`/api/repos/${REPO.id}/inactivity`).send({ days: null });
+  });
+
+  it('stamps "checked today" when a card is dropped into a future column', async () => {
+    // Dropping in "tomorrow" back-dates the anchor 6 days, but the review is now.
+    await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 6 });
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.column).toBe('day-1');
+    expect(repo.checkedAgeDays).toBe(0); // not "6d ago"
+  });
+
+  it('does not fabricate a check when moving an untouched repo to Today', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: null });
+    await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 7 });
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.column).toBe('day-0');
+    expect(repo.checkedAgeDays).toBeNull();
   });
 });
 

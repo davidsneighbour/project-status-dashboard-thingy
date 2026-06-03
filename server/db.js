@@ -23,7 +23,8 @@ db.exec(`
     repo_id         INTEGER PRIMARY KEY,
     full_name       TEXT,
     priority        INTEGER,          -- 1..3 = assigned, NULL = inbox / untriaged
-    priority_set_at TEXT,             -- ISO time of the last triage or "I looked" touch
+    priority_set_at TEXT,             -- scheduling anchor (may be back-dated to place a card in a future column)
+    checked_at      TEXT,             -- ISO time the repo was actually last reviewed (drives "checked Nd ago")
     inactivity_days INTEGER,          -- per-repo override; NULL = use the global default
     position        INTEGER DEFAULT 0,-- ordering within a column (for drag sorting)
     ignored         INTEGER DEFAULT 0,-- 1 = hidden from the board unless "show ignored" is on
@@ -36,6 +37,12 @@ db.exec(`
 const repoStateColumns = db.prepare(`PRAGMA table_info(repo_state)`).all().map((c) => c.name);
 if (!repoStateColumns.includes('ignored')) {
   db.exec(`ALTER TABLE repo_state ADD COLUMN ignored INTEGER DEFAULT 0`);
+}
+if (!repoStateColumns.includes('checked_at')) {
+  db.exec(`ALTER TABLE repo_state ADD COLUMN checked_at TEXT`);
+  // Backfill from the old scheduling anchor so previously-triaged repos keep a
+  // sensible "checked" display until their next interaction refines it.
+  db.exec(`UPDATE repo_state SET checked_at = priority_set_at WHERE checked_at IS NULL AND priority_set_at IS NOT NULL`);
 }
 
 // Free-form, timestamped notices attached to a repo. Many per repo; the newest

@@ -11,6 +11,14 @@ export const rateLimit = {
   authInvalid: false,// true after a 401 — set back to false on success
 };
 
+// ---- Per-sync source diagnostics -------------------------------------------
+// Reset at the start of every fetchAllRepos() and surfaced to the UI so the
+// user can see which owners loaded and any non-fatal access warnings.
+export const sourceStatus = {
+  owners: [],   // [{ owner, count, scope }] — scope: self|member|public|error
+  warnings: [], // human-readable, non-fatal messages (e.g. org access fell back to public)
+};
+
 export function parseRateLimitHeaders(res, target = rateLimit) {
   const h = (k) => res.headers.get(k);
   if (h('x-ratelimit-limit') !== null) target.limit = Number(h('x-ratelimit-limit'));
@@ -21,81 +29,194 @@ export function parseRateLimitHeaders(res, target = rateLimit) {
 }
 
 /**
- * Fetch ALL repositories the configured token can see.
- *
- * - Default (no GITHUB_USERNAME): the authenticated token owner's repos,
- *   including private + archived (this is what you almost certainly want).
- * - With GITHUB_USERNAME set: that user/org's PUBLIC repos only (GitHub will
- *   not expose someone else's private repos no matter the token).
+ * Parse the configured owner list. Accepts either a comma/space separated
+ * string ("a, b c") or a JSON array string ('["a","b"]'). Returns a
+ * de-duplicated (case-insensitive) array of owner logins in input order.
  */
-export async function fetchAllRepos() {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('GITHUB_TOKEN is not set. Put it in ~/.env and start with: docker compose --env-file ~/.env up');
-  }
+export function parseOwners(raw) {
+  if (raw == null) return [];
+  const s = String(raw).trim();
+  if (!s) return [];
 
-  // Block immediately if we know the rate limit is exhausted.
-  if (rateLimit.remaining === 0 && rateLimit.reset && Math.floor(Date.now() / 1000) < rateLimit.reset) {
-    const secsLeft = Math.ceil(rateLimit.reset - Date.now() / 1000);
-    const resetAt = new Date(rateLimit.reset * 1000).toLocaleTimeString();
-    throw new Error(`GitHub API rate limit exhausted — resets at ${resetAt} (in ${secsLeft}s)`);
+  let list = null;
+  if (s.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) list = parsed;
+    } catch { /* not valid JSON — fall through to delimiter split */ }
   }
+  if (!Array.isArray(list)) list = s.split(/[\s,]+/);
 
-  const username = (process.env.GITHUB_USERNAME || '').trim();
-  const headers = {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const v = String(item ?? '').trim();
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+function buildHeaders(token) {
+  return {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
     'User-Agent': 'repo-dashboard',
   };
+}
 
+function assertRateBudget() {
+  if (rateLimit.remaining === 0 && rateLimit.reset && Math.floor(Date.now() / 1000) < rateLimit.reset) {
+    const secsLeft = Math.ceil(rateLimit.reset - Date.now() / 1000);
+    const resetAt = new Date(rateLimit.reset * 1000).toLocaleTimeString();
+    throw new Error(`GitHub API rate limit exhausted — resets at ${resetAt} (in ${secsLeft}s)`);
+  }
+}
+
+// Single GET that records rate-limit headers and throws on the two fatal
+// conditions (invalid token, exhausted rate limit). All other statuses are
+// returned to the caller so it can decide whether to fall back.
+async function ghGet(url, headers) {
+  const res = await fetch(url, { headers });
+  parseRateLimitHeaders(res);
+
+  if (res.status === 401) {
+    rateLimit.authInvalid = true;
+    const body = await res.text().catch(() => '');
+    let msg = 'GitHub token is invalid or expired (401).';
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.message) msg += ` GitHub says: "${parsed.message}"`;
+    } catch { /* body wasn't JSON */ }
+    throw new Error(msg);
+  }
+
+  if (res.status === 403 && rateLimit.remaining === 0) {
+    const resetAt = rateLimit.reset ? new Date(rateLimit.reset * 1000).toLocaleTimeString() : 'unknown';
+    throw new Error(`GitHub API rate limit exhausted (403) — resets at ${resetAt}`);
+  }
+
+  return res;
+}
+
+function repoListError({ status, body }) {
+  if (status === 403) return new Error(`GitHub API 403 Forbidden: ${(body || '').slice(0, 200)}`);
+  return new Error(`GitHub API ${status}: ${(body || '').slice(0, 200)}`);
+}
+
+// Paginate a repos listing. makeUrl(page, perPage) -> url. Returns
+// { ok, status, body, repos } — `repos` holds whatever was collected.
+async function paginateRepos(makeUrl, headers) {
   const out = [];
   const perPage = 100;
   for (let page = 1; page <= 50; page++) {
-    const url = username
-      ? `${GITHUB_API}/users/${encodeURIComponent(username)}/repos?per_page=${perPage}&page=${page}&type=owner&sort=full_name`
-      : `${GITHUB_API}/user/repos?per_page=${perPage}&page=${page}&affiliation=owner&visibility=all&sort=full_name`;
-
-    const res = await fetch(url, { headers });
-    parseRateLimitHeaders(res);
-
-    if (res.status === 401) {
-      rateLimit.authInvalid = true;
-      const body = await res.text().catch(() => '');
-      let msg = 'GitHub token is invalid or expired (401).';
-      try {
-        const parsed = JSON.parse(body);
-        if (parsed.message) msg += ` GitHub says: "${parsed.message}"`;
-      } catch { /* body wasn't JSON */ }
-      throw new Error(msg);
-    }
-
-    if (res.status === 403) {
-      const body = await res.text().catch(() => '');
-      if (rateLimit.remaining === 0) {
-        const resetAt = rateLimit.reset ? new Date(rateLimit.reset * 1000).toLocaleTimeString() : 'unknown';
-        throw new Error(`GitHub API rate limit exhausted (403) — resets at ${resetAt}`);
-      }
-      throw new Error(`GitHub API 403 Forbidden: ${body.slice(0, 200)}`);
-    }
-
+    const res = await ghGet(makeUrl(page, perPage), headers);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`GitHub API ${res.status}: ${body.slice(0, 200)}`);
+      return { ok: false, status: res.status, body, repos: out };
     }
-
     const batch = await res.json();
     out.push(...batch);
     if (batch.length < perPage) break;
   }
+  return { ok: true, status: 200, repos: out };
+}
 
-  // Successful fetch — token is clearly valid.
-  rateLimit.authInvalid = false;
+const selfReposUrl = (page, perPage) =>
+  `${GITHUB_API}/user/repos?per_page=${perPage}&page=${page}&affiliation=owner&visibility=all&sort=full_name`;
+const orgReposUrl = (owner) => (page, perPage) =>
+  `${GITHUB_API}/orgs/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=all&sort=full_name`;
+const userReposUrl = (owner) => (page, perPage) =>
+  `${GITHUB_API}/users/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=owner&sort=full_name`;
 
-  return out.map((r) => ({
+// Is the authenticated token a member of this org? 200 = member, anything else
+// (404 not-a-member, 403 forbidden) = no, so we only see public repos.
+async function isOrgMember(owner, headers) {
+  const res = await ghGet(`${GITHUB_API}/user/memberships/orgs/${encodeURIComponent(owner)}`, headers);
+  if (res.status !== 200) return false;
+  const m = await res.json().catch(() => null);
+  return m?.state === 'active' || m?.state === 'pending';
+}
+
+// Resolve one configured owner to a list of repos, recording warnings when we
+// can only reach public repositories.
+async function fetchOwnerRepos(owner, viewerLogin, headers) {
+  // The token's own account → use /user/repos so private repos are included.
+  if (viewerLogin && owner.toLowerCase() === viewerLogin) {
+    const r = await paginateRepos(selfReposUrl, headers);
+    if (!r.ok) throw repoListError(r);
+    return { repos: r.repos, scope: 'self' };
+  }
+
+  // Try the org endpoint first (exposes private org repos when authorized).
+  const orgRes = await paginateRepos(orgReposUrl(owner), headers);
+
+  if (orgRes.ok) {
+    const member = await isOrgMember(owner, headers);
+    if (!member) {
+      sourceStatus.warnings.push(
+        `Token is not a member of organization "${owner}" — loaded its public repositories only.`
+      );
+      return { repos: orgRes.repos, scope: 'public' };
+    }
+    return { repos: orgRes.repos, scope: 'member' };
+  }
+
+  // Not an org (404) → it's a user account; load their public repos.
+  if (orgRes.status === 404) {
+    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    if (!userRes.ok) throw repoListError(userRes);
+    return { repos: userRes.repos, scope: 'public' };
+  }
+
+  // Forbidden for the org listing → fall back to whatever is public.
+  if (orgRes.status === 403) {
+    sourceStatus.warnings.push(
+      `Token is not authorized for organization "${owner}" (403) — loaded its public repositories only.`
+    );
+    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    return { repos: userRes.ok ? userRes.repos : [], scope: 'public' };
+  }
+
+  throw repoListError(orgRes);
+}
+
+async function fetchConfiguredOwners(owners, headers) {
+  // The viewer's login lets us pull private repos for the token owner itself.
+  let viewerLogin = null;
+  const meRes = await ghGet(`${GITHUB_API}/user`, headers);
+  if (meRes.ok) {
+    const me = await meRes.json().catch(() => null);
+    viewerLogin = me?.login ? String(me.login).toLowerCase() : null;
+  }
+
+  const byId = new Map();
+  for (const owner of owners) {
+    try {
+      const { repos, scope } = await fetchOwnerRepos(owner, viewerLogin, headers);
+      for (const r of repos) byId.set(r.id, r);
+      sourceStatus.owners.push({ owner, count: repos.length, scope });
+    } catch (e) {
+      // Fatal conditions abort the whole sync; everything else is per-owner.
+      if (/invalid or expired|rate limit/i.test(e.message)) throw e;
+      sourceStatus.warnings.push(`Could not load "${owner}": ${e.message}`);
+      sourceStatus.owners.push({ owner, count: 0, scope: 'error' });
+    }
+  }
+  return [...byId.values()];
+}
+
+function mapRepo(r) {
+  return {
     id: r.id,
     name: r.name,
     full_name: r.full_name,
+    owner: r.owner?.login ?? (r.full_name ? r.full_name.split('/')[0] : null),
+    owner_type: r.owner?.type ?? null,
     description: r.description,
     private: r.private,
     archived: r.archived,
@@ -106,5 +227,45 @@ export async function fetchAllRepos() {
     updated_at: r.updated_at,
     stargazers_count: r.stargazers_count,
     open_issues_count: r.open_issues_count,
-  }));
+  };
+}
+
+/**
+ * Fetch repositories for the dashboard.
+ *
+ * - No GITHUB_OWNERS / GITHUB_USERNAME: the authenticated token owner's repos,
+ *   including private + archived.
+ * - One or more owners configured (comma list or JSON array via GITHUB_OWNERS,
+ *   or a single GITHUB_USERNAME): each is loaded individually — the token
+ *   owner's own login pulls private repos; orgs you belong to pull private +
+ *   public; orgs you don't, and plain users, pull public only (with a warning).
+ */
+export async function fetchAllRepos() {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error('GITHUB_TOKEN is not set. Put it in ~/.env and start with: docker compose --env-file ~/.env up');
+  }
+
+  assertRateBudget();
+
+  const headers = buildHeaders(token);
+  sourceStatus.owners = [];
+  sourceStatus.warnings = [];
+
+  const owners = parseOwners(process.env.GITHUB_OWNERS ?? process.env.GITHUB_USERNAME);
+
+  let raw;
+  if (owners.length === 0) {
+    const r = await paginateRepos(selfReposUrl, headers);
+    if (!r.ok) throw repoListError(r);
+    raw = r.repos;
+    sourceStatus.owners.push({ owner: null, count: raw.length, scope: 'self' });
+  } else {
+    raw = await fetchConfiguredOwners(owners, headers);
+  }
+
+  // A clean fetch proves the token is valid.
+  rateLimit.authInvalid = false;
+
+  return raw.map(mapRepo);
 }

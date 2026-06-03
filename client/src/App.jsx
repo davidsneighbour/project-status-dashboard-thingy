@@ -19,6 +19,18 @@ const ACCENT = {
 const cx = (...a) => a.filter(Boolean).join(' ');
 const BOARD_CACHE_KEY = 'repo-triage-board-cache-v1';
 
+// Categorical owner-identity palette (see DESIGN.md → Colors → Owner palette).
+// Muted hues kept clear of the semantic ramps (rose/amber/sky/emerald/violet).
+// Applied via inline style because the owner set is dynamic/unbounded.
+const OWNER_PALETTE = ['#2dd4bf', '#818cf8', '#e879f9', '#fb923c', '#a3e635', '#22d3ee', '#f472b6', '#5eead4'];
+
+export function ownerColor(login) {
+  const s = String(login || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return OWNER_PALETTE[h % OWNER_PALETTE.length];
+}
+
 const EMPTY_DATA = {
   repos: [],
   cacheReady: false,
@@ -26,6 +38,8 @@ const EMPTY_DATA = {
   defaultInactivityDays: 7,
   lastFetch: null,
   username: null,
+  owners: [],
+  sourceWarnings: [],
   tokenPresent: true,
   lastError: null,
   rateLimit: null,
@@ -385,9 +399,10 @@ function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged }) {
   );
 }
 
-function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
+function RepoCard({ repo, column, menuOpenId, showOwner, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
   const SettingsIcon = ICON.settings;
   const menuButtonRef = useRef(null);
+  const ownerTint = showOwner && repo.owner ? ownerColor(repo.owner) : null;
 
   return (
     <div
@@ -399,6 +414,7 @@ function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onD
         e.preventDefault();
         onDropOnCard(e, repo.id, column.daysAgoTarget);
       }}
+      style={ownerTint ? { borderLeftColor: ownerTint, borderLeftWidth: 3 } : undefined}
       className="group relative rounded-lg border border-neutral-800 bg-neutral-900/70 p-3 hover:border-neutral-700"
     >
       <div className="flex items-start justify-between gap-2">
@@ -424,6 +440,15 @@ function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onD
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {ownerTint && (
+          <span
+            className="inline-flex items-center gap-1 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-300"
+            title={`owner: ${repo.owner}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ownerTint }} aria-hidden="true" />
+            {repo.owner}
+          </span>
+        )}
         <Badge tone={repo.private ? 'amber' : 'emerald'}>{repo.private ? 'private' : 'public'}</Badge>
         {repo.archived ? <Badge tone="neutral">archived</Badge> : <Badge tone="sky">live</Badge>}
         {repo.fork && <Badge tone="neutral">fork</Badge>}
@@ -433,7 +458,13 @@ function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onD
 
       <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-500">
         <span>pushed {timeAgo(repo.pushed_at)}</span>
-        <span>{repo.checkedAgeDays == null ? 'not checked yet' : `checked ${repo.checkedAgeDays}d ago`}</span>
+        <span>
+          {repo.checkedAgeDays == null
+            ? 'not checked yet'
+            : repo.checkedAgeDays === 0
+            ? 'checked today'
+            : `checked ${repo.checkedAgeDays}d ago`}
+        </span>
       </div>
 
       <div className="mt-1 text-[11px] text-neutral-500">
@@ -682,6 +713,14 @@ export default function App() {
     return filterRepos(data.repos, q, filters, showIgnored);
   }, [data.repos, q, filters, showIgnored]);
 
+  // Only surface the per-card owner indicator when the board mixes owners;
+  // single-owner setups already name the owner in the header.
+  const showOwners = useMemo(() => {
+    const set = new Set();
+    for (const r of data.repos) if (r.owner) set.add(r.owner);
+    return set.size > 1;
+  }, [data.repos]);
+
   const dayColumns = useMemo(() => {
     return buildDayColumns(data.defaultInactivityDays, calendarLabel);
   }, [data.defaultInactivityDays]);
@@ -690,11 +729,20 @@ export default function App() {
     return groupRepos(filtered, dayColumns);
   }, [filtered, dayColumns]);
 
+  const ownerLabel = data.owners?.length
+    ? data.owners.length <= 3
+      ? data.owners.map((o) => `@${o}`).join(', ')
+      : `${data.owners.length} owners`
+    : data.username
+    ? `@${data.username}`
+    : 'authenticated user';
+
   const todayColumn = dayColumns[0];
   const futureColumns = dayColumns.slice(1);
 
   const cardProps = {
     menuOpenId: openMenuId,
+    showOwner: showOwners,
     onToggleMenu,
     onDragStartCard,
     onDropOnCard,
@@ -713,7 +761,7 @@ export default function App() {
         <div className="flex items-baseline gap-3">
           <h1 className="text-base font-semibold tracking-tight text-neutral-100">repo.triage</h1>
           <span className="text-xs text-neutral-600">
-            {data.username ? `@${data.username}` : 'authenticated user'} · {data.repos.length} repos · review cycle {data.defaultInactivityDays}d
+            {ownerLabel} · {data.repos.length} repos · review cycle {data.defaultInactivityDays}d
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -839,6 +887,13 @@ export default function App() {
           <div className="mb-4 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
             GitHub error: {data.lastError}
             {!data.tokenPresent && ' - no GITHUB_TOKEN found. Start with: docker compose --env-file ~/.env up'}
+          </div>
+        )}
+        {data.sourceWarnings?.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+            {data.sourceWarnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
           </div>
         )}
         {showingCachedData && (
