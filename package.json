@@ -22,6 +22,9 @@
     "test": "npm run test:client && npm run test:server",
     "test:client": "npm --prefix client run test",
     "test:server": "npm --prefix server run test",
+    "test:coverage": "npm run test:coverage:client && npm run test:coverage:server",
+    "test:coverage:client": "npm --prefix client run test:coverage",
+    "test:coverage:server": "npm --prefix server run test:coverage",
     "lint:markdown": "markdownlint-cli2 --config ./node_modules/@dnbhq/markdownlint-config/.markdownlint-cli2.jsonc \"**/*.{md,mdx}\"",
     "lint:markdown:fix": "markdownlint-cli2 --config ./node_modules/@dnbhq/markdownlint-config/.markdownlint-cli2.jsonc --fix \"**/*.{md,mdx}\"",
     "lint:markdown:single": "markdownlint-cli2 --config ./node_modules/@dnbhq/markdownlint-config/.markdownlint-cli2.jsonc"
