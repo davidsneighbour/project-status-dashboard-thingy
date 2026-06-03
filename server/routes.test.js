@@ -273,6 +273,37 @@ describe('tags', () => {
   });
 });
 
+describe('reports', () => {
+  it('lists available report kinds', async () => {
+    const res = await request(app).get('/api/reports');
+    expect(res.status).toBe(200);
+    expect(res.body.kinds).toContain('summary');
+  });
+
+  it('returns a json report by default', async () => {
+    const res = await request(app).get('/api/reports/summary');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ kind: 'summary', columns: ['metric', 'value'] });
+    expect(Array.isArray(res.body.rows)).toBe(true);
+  });
+
+  it('renders markdown and csv via the format query', async () => {
+    const md = await request(app).get('/api/reports/summary?format=md');
+    expect(md.headers['content-type']).toMatch(/text\/markdown/);
+    expect(md.text).toContain('## Summary');
+
+    const csv = await request(app).get('/api/reports/summary?format=csv');
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.text).toContain('metric,value');
+  });
+
+  it('400s on an unknown report kind', async () => {
+    const res = await request(app).get('/api/reports/nope');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unknown report/);
+  });
+});
+
 describe('POST /api/refresh', () => {
   it('queues a background sync and returns immediately without blocking on GitHub', async () => {
     let resolveFetch;

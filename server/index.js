@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import db from './db.js';
 import { fetchAllRepos, rateLimit, sourceStatus, authStatus, parseOwners } from './github.js';
 import { effectiveState } from './schedule.js';
+import { buildReport, toMarkdown, toCsv, REPORT_KINDS } from './report.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -334,6 +335,25 @@ app.delete('/api/repos/:id/tags/:tag', (req, res) => {
 // Distinct tags across all repos with usage counts (for the CLI and reports).
 app.get('/api/tags', (req, res) => {
   res.json({ tags: allTagsStmt.all() });
+});
+
+// ---- Reports ---------------------------------------------------------------
+app.get('/api/reports', (req, res) => {
+  res.json({ kinds: REPORT_KINDS });
+});
+
+// Tabular reports over the board, rendered as json (default), markdown or csv.
+app.get('/api/reports/:kind', (req, res) => {
+  let report;
+  try {
+    report = buildReport(req.params.kind, buildPayload(), { days: req.query.days });
+  } catch (e) {
+    return res.status(400).json({ error: String(e.message || e) });
+  }
+  const format = req.query.format;
+  if (format === 'md' || format === 'markdown') return res.type('text/markdown').send(toMarkdown(report));
+  if (format === 'csv') return res.type('text/csv').send(toCsv(report));
+  res.json(report);
 });
 
 // ---- Static client (built by Vite) ----------------------------------------
