@@ -95,6 +95,12 @@ components:
     padding: 12px
   card-hover:
     backgroundColor: "{colors.surface}"
+  # ---- Card notice (latest notice preview, read-only) ----------------------
+  card-notice:
+    backgroundColor: "{colors.surface-subtle}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.md}"
+    padding: 6px 8px
   # ---- Badge ---------------------------------------------------------------
   badge:
     rounded: "{rounded.sm}"
@@ -117,6 +123,9 @@ components:
   badge-language:
     backgroundColor: "#1a0a2e"
     textColor: "#c4b5fd"
+  badge-ignored:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-muted}"
   # ---- Buttons -------------------------------------------------------------
   button-primary:
     backgroundColor: "{colors.surface}"
@@ -174,11 +183,27 @@ components:
     textColor: "{colors.text-secondary}"
     rounded: "{rounded.lg}"
     padding: 16px
+  # Surface that holds the help flow diagram. The diagram is pre-rendered to a
+  # static SVG at build time (src/help-diagram.svg via scripts/build-help-diagram.mjs)
+  # and inlined — Mermaid is not run in the browser. The SVG uses the neutral
+  # ramp only: surface nodes, border-muted/text-faint strokes, text-secondary
+  # labels. No accent colours.
   help-mermaid-surface:
     backgroundColor: "{colors.surface-subtle}"
     textColor: "{colors.text-secondary}"
     rounded: "{rounded.md}"
     padding: 12px
+  # ---- Notices dialog ------------------------------------------------------
+  notices-dialog:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.lg}"
+    padding: 16px
+  notices-row:
+    backgroundColor: "{colors.surface-subtle}"
+    textColor: "{colors.text-secondary}"
+    rounded: "{rounded.md}"
+    padding: 8px 12px
   # ---- Banner — auth error -------------------------------------------------
   banner-error:
     backgroundColor: "{colors.danger-bg}"
@@ -327,6 +352,7 @@ otherwise just the total.
 │ [public] [live] [JavaScript]    │
 │ pushed 3d ago     checked 2d ago│
 │ review in 5d                    │
+│ ▸ latest notice text   2d ago   │  ← card-notice (only if a notice exists)
 └─────────────────────────────────┘
 ```
 
@@ -334,6 +360,13 @@ otherwise just the total.
 * Description: `line-clamp-2`. Never wraps further.
 * Badge row: flex-wrap, gap `6px`.
 * Metadata row: flex row, space-between, `label` scale.
+* **Card notice** — when a repo has at least one notice, the most recent one
+  renders in a `card-notice` block below the metadata: `surface-subtle`
+  background, `rounded.md`, `label` scale, body text `line-clamp-2`, with the
+  notice's relative timestamp right-aligned. Read-only — authoring and browsing
+  notices happen in the `CardMenu` and the Notices dialog. When a card carries
+  notices but the repo is otherwise unremarkable, an `ignored` badge may also
+  appear in the badge row (see Badge).
 
 ### Header
 
@@ -347,7 +380,11 @@ Full-width sticky bar at the top:
 Full-width bar below header:
 
 * Left: text filter input (fixed `256px` width)
-* Right: filter pills (own / forks / archived) + conditional "show all" button
+* Middle: filter pills (own / forks / archived) + conditional "show all" button
+* Right: a separate group, divided by a `border-l`, holding the global **show
+  ignored** toggle and a **Notices** button. These sit deliberately apart from
+  the inclusive filter pills: ignoring is an independent visibility axis, not a
+  category filter, and the Notices button opens the all-repos dialog.
 
 ## Elevation & depth
 
@@ -412,16 +449,28 @@ Read-only labels. Always inline. Never interactive. Each badge type has a fixed
 (e.g. do not use the language badge violet for a new badge category without
 updating this document).
 
+The `ignored` badge (`badge-ignored`, muted neutral) marks a repo the user has
+chosen to ignore. It uses the same muted neutral family as `fork`/`archived`
+because "ignored" is likewise a quiet, non-urgent state, not a new accent.
+Ignored repos are hidden from the board by default, so this badge is only ever
+visible while the global **show ignored** toggle is on.
+
 ### CardMenu (popover)
 
 Appears on `···` click. Fixed-width `256px`. Rendered through a portal to
 `document.body` and positioned `fixed`, anchored just below the trigger button —
 this keeps it from being clipped by a column's `overflow-y-auto` scroll area.
-Contains three action groups:
+Contains these action groups, each separated by a `border-neutral-800` divider:
 
 1. **Review timing buttons** — "Checked now", "Move to Today", "Clear check date"
 2. **Per-repo review interval input** — number field + save button
-3. Backdrop scrim (`fixed inset-0 z-10`) closes the menu on outside click.
+3. **Ignore toggle** — a single full-width button reading "Ignore repo" /
+   "Unignore repo" depending on current state.
+4. **Notices** — a `micro` label, a multi-line text field for a new notice, an
+   "Add" button (disabled while the field is empty), and a "View all (N)" link
+   that opens the Notices dialog scoped to this repo. `N` is the repo's notice
+   count.
+5. Backdrop scrim (`fixed inset-0 z-10`) closes the menu on outside click.
 
 Do not add new action groups without updating this document.
 
@@ -446,6 +495,39 @@ toolbar filter.
   (visible/total) and an empty result shows "no matches" instead of "drag here".
 * Navigation aid only: it does not mutate triage state, is not persisted, and
   does not affect drag-drop targets.
+
+### Show-ignored toggle
+
+A single pill in the toolbar's right-hand group, styled like a filter pill
+(active = `bg-neutral-800 border-neutral-600`, inactive = `transparent
+border-neutral-800 text-faint`) with a leading eye-off glyph. It is **not** part
+of the own/forks/archived inclusive set: it toggles whether ignored repos are
+shown at all, on top of whatever the inclusive filters resolve to. Its state is
+persisted in localStorage under its own key, separate from the filter pills.
+
+### Notices dialog
+
+A modal overlay matching the Help dialog's structure (`fixed` scrim at
+`z-30`, centred panel at `z-40`, Esc to close). Two scopes:
+
+* **All repos** — opened from the toolbar **Notices** button. Shows every
+  notice across all repos.
+* **Single repo** — opened from a card's `CardMenu` "View all" link. Shows only
+  that repo's notices; the header names the repo and offers a "show all repos"
+  link to widen the scope.
+
+Anatomy:
+
+* Header: title, scope label, and sort controls — a **date / repo** segmented
+  control plus an ascending/descending direction toggle.
+* Body: a vertical list of `notices-row` items (`surface-subtle`, `rounded.md`).
+  Each row shows the repo name (all-repos scope only), the notice timestamp
+  (`label` scale, `text-muted`), the notice body, and a delete affordance.
+* Empty state: "no notices yet" in `text-faint`.
+
+Sort by repo name uses the same muted treatment as other metadata; do not
+introduce accent colour here. The dialog reads and writes notices through the
+API and refreshes the board on change so card previews and counts stay current.
 
 ### Banners
 

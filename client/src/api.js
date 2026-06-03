@@ -28,4 +28,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderedIds }),
     }).then(json),
+  setIgnored: (id, ignored) =>
+    fetch(`/api/repos/${id}/ignore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ignored }),
+    }).then(json),
+  addNotice: (id, body) =>
+    fetch(`/api/repos/${id}/notices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }).then(json),
+  repoNotices: (id) => fetch(`/api/repos/${id}/notices`).then(json),
+  allNotices: (sort = 'date', dir = 'desc') =>
+    fetch(`/api/notices?sort=${encodeURIComponent(sort)}&dir=${encodeURIComponent(dir)}`).then(json),
+  deleteNotice: (noticeId) => fetch(`/api/notices/${noticeId}`, { method: 'DELETE' }).then(json),
 };

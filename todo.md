@@ -2,10 +2,52 @@
 
 ## Status snapshot (2026-06-03)
 
-* `npm run test` runs **client (10 files / 30 tests)** + **server (4 files / 33 tests)**, all green, no Docker.
-* `npm run test:coverage` runs both workspaces with enforced thresholds (`vitest.config.js`). Current: **client ~90% lines / 83% branch**, **server ~87% lines / 78% branch**.
+* `npm run test` runs **client (12 files / 47 tests)** + **server (4 files / 39 tests)**, all green, no Docker.
+* `npm run test:coverage` runs both workspaces with enforced thresholds (`vitest.config.js`). Current: **client ~90% lines / 84% branch**, **server ~89% lines / 78% branch**.
 * No-Docker run path: `npm run dev` (root) boots backend + frontend together; the backend auto-loads the root `.env`. `npm run server` runs just the backend.
 * **The engineering backlog is clear.** All testing-foundation, issue-coverage, route-test, coverage-enforcement, and docs work is complete and committed. The only remaining items are the manual release-QA checklist below (requires a browser + a real `GITHUB_TOKEN`); most of those behaviors are already covered by automated tests.
+
+## Feature work: ignore flag + notices (2026-06-03)
+
+Local-only repo metadata persisted in SQLite alongside triage state.
+
+### Ignore flag
+
+* [x] `repo_state.ignored` column (migration for existing DBs) + `POST /api/repos/:id/ignore`
+* [x] `buildPayload()` exposes `ignored` boolean per repo
+* [x] ignored repos hidden from the board by default
+* [x] global **show ignored** toggle in the toolbar, separate from the own/forks/archived pills
+* [x] ignore / unignore action in the card menu + `ignored` badge on the card
+
+### Notices
+
+* [x] `repo_notice` table (id, repo_id, full_name, body, created_at)
+* [x] `POST /api/repos/:id/notices` (timestamped), `GET /api/repos/:id/notices`, `GET /api/notices?sort=&dir=`, `DELETE /api/notices/:noticeId`
+* [x] `buildPayload()` exposes `latest_notice` + `notice_count` per repo
+* [x] latest notice shown on the repo card
+* [x] add-notice + view-notices actions in the card menu
+* [x] Notices dialog: all notices for one repo and across all repos, sortable by date and repo name
+* [x] tests: server routes (ignore + notices CRUD + sort), client `filterRepos(showIgnored)` + `sortNotices`
+
+## Bugfix + refactor: background sync (2026-06-03)
+
+GitHub loading is owned by the backend; the frontend only reads `/api/repos`.
+
+* [x] **Bug:** on a fresh server start the cached board flashes, then `load()` overwrites the cache with the not-ready empty payload and the board never refills until a manual F5. Fix: never clobber a populated board with a not-ready empty payload, and never persist a not-ready payload to localStorage.
+* [x] Keep polling `/api/repos` while the server reports `cacheReady: false` **or** `syncing: true` (drive the loop from the server's status, not the cached value).
+* [x] Backend owns the initial load on server start (already via `SYNC_ON_STARTUP`); make it a fire-and-forget background `queueRefresh()` so a slow GitHub fetch never blocks request handling.
+* [x] `POST /api/refresh` queues a background sync and returns immediately instead of blocking on the GitHub fetch; expose a `syncing` flag in `/api/repos`.
+* [x] Auto-sync interval also goes through `queueRefresh()` (no overlapping fetches).
+* [x] Frontend "sync GitHub" queues the backend task and reflects `syncing` (spinner/disabled) while the poll loop pulls in the result.
+* [x] tests: queued refresh returns fast + reports `syncing`; `/api/repos` exposes `syncing`; frontend keeps cached board on a not-ready payload.
+
+## Bugfix: help diagram renders as a build-time SVG (2026-06-03)
+
+* [x] **Bug:** F1 help showed "Unable to render Mermaid diagram…" because Mermaid was run in the browser at view time and failed.
+* [x] Pre-render the `help.md` flow diagram to a static, dark-themed SVG committed at `client/src/help-diagram.svg`; the help dialog inlines it (no runtime Mermaid).
+* [x] `scripts/build-help-diagram.mjs` regenerates the SVG from the `help.md` mermaid block via `@mermaid-js/mermaid-cli`; wired as `prebuild` + `build:help-diagram`, best-effort (skips cleanly if Chromium/cli absent so `npm run build` never fails).
+* [x] Drop the runtime `mermaid` dependency (removed from `package.json` + lockfile; ~110 packages, big bundle win).
+* [x] tests: help dialog renders the pre-built diagram SVG and shows no Mermaid fallback.
 
 ## Manual interaction test checklist
 

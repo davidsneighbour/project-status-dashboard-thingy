@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1210 320" role="img" aria-labelledby="help-diagram-title" font-family="'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace">
+  <title id="help-diagram-title">Repo.triage data-loading flow</title>
+  <desc>Open dashboard, branch on whether a cached board exists, render or show loading, fetch the API payload, then branch on fetch success to render a fresh board or keep the current board with an error banner.</desc>
+  <defs>
+    <marker id="hd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#525252" />
+    </marker>
+  </defs>
+  <style>
+    .node { fill: #171717; stroke: #404040; stroke-width: 1; }
+    .decision { fill: #171717; stroke: #525252; stroke-width: 1; }
+    .ntext { fill: #d4d4d4; font-size: 12px; }
+    .dtext { fill: #d4d4d4; font-size: 11px; }
+    .edge { fill: none; stroke: #525252; stroke-width: 1.5; }
+    .elabel { fill: #a3a3a3; font-size: 11px; }
+    .elabelbg { fill: #0d0d0d; }
+  </style>
+
+  <!-- edges -->
+  <path class="edge" d="M180,170 L208,170" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M335,150 L426,80" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M335,190 L426,260" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M590,86 L636,156" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M590,258 L636,184" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M800,170 L828,170" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M955,150 L1006,80" marker-end="url(#hd-arrow)" />
+  <path class="edge" d="M955,190 L1006,260" marker-end="url(#hd-arrow)" />
+
+  <!-- edge labels -->
+  <rect class="elabelbg" x="367" y="100" width="26" height="16" rx="3" />
+  <text class="elabel" x="380" y="112" text-anchor="middle">yes</text>
+  <rect class="elabelbg" x="369" y="216" width="22" height="16" rx="3" />
+  <text class="elabel" x="380" y="228" text-anchor="middle">no</text>
+  <rect class="elabelbg" x="968" y="100" width="26" height="16" rx="3" />
+  <text class="elabel" x="981" y="112" text-anchor="middle">yes</text>
+  <rect class="elabelbg" x="970" y="216" width="22" height="16" rx="3" />
+  <text class="elabel" x="981" y="228" text-anchor="middle">no</text>
+
+  <!-- A: Open dashboard -->
+  <rect class="node" x="20" y="146" width="160" height="48" rx="8" />
+  <text class="ntext" x="100" y="170" text-anchor="middle" dominant-baseline="middle">Open dashboard</text>
+
+  <!-- B: Cached board exists? -->
+  <polygon class="decision" points="290,124 370,170 290,216 210,170" />
+  <text class="dtext" x="290" y="170" text-anchor="middle">
+    <tspan x="290" dy="-0.25em">Cached board</tspan>
+    <tspan x="290" dy="1.15em">exists?</tspan>
+  </text>
+
+  <!-- C: Render cached board -->
+  <rect class="node" x="430" y="46" width="160" height="48" rx="8" />
+  <text class="ntext" x="510" y="70" text-anchor="middle">
+    <tspan x="510" dy="-0.25em">Render cached</tspan>
+    <tspan x="510" dy="1.15em">board</tspan>
+  </text>
+
+  <!-- D: Show loading state -->
+  <rect class="node" x="430" y="246" width="160" height="48" rx="8" />
+  <text class="ntext" x="510" y="270" text-anchor="middle">
+    <tspan x="510" dy="-0.25em">Show loading</tspan>
+    <tspan x="510" dy="1.15em">state</tspan>
+  </text>
+
+  <!-- E: Fetch API payload -->
+  <rect class="node" x="640" y="146" width="160" height="48" rx="8" />
+  <text class="ntext" x="720" y="170" text-anchor="middle">
+    <tspan x="720" dy="-0.25em">Fetch API</tspan>
+    <tspan x="720" dy="1.15em">payload</tspan>
+  </text>
+
+  <!-- F: Fetch successful? -->
+  <polygon class="decision" points="910,124 990,170 910,216 830,170" />
+  <text class="dtext" x="910" y="170" text-anchor="middle">
+    <tspan x="910" dy="-0.25em">Fetch</tspan>
+    <tspan x="910" dy="1.15em">successful?</tspan>
+  </text>
+
+  <!-- G: Render fresh board and save cache -->
+  <rect class="node" x="1010" y="46" width="180" height="48" rx="8" />
+  <text class="ntext" x="1100" y="70" text-anchor="middle">
+    <tspan x="1100" dy="-0.25em">Render fresh board</tspan>
+    <tspan x="1100" dy="1.15em">and save cache</tspan>
+  </text>
+
+  <!-- H: Keep current board and show error banner -->
+  <rect class="node" x="1010" y="246" width="180" height="48" rx="8" />
+  <text class="ntext" x="1100" y="270" text-anchor="middle">
+    <tspan x="1100" dy="-0.25em">Keep current board</tspan>
+    <tspan x="1100" dy="1.15em">and show error banner</tspan>
+  </text>
+</svg>

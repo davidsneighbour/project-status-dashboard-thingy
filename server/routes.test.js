@@ -48,6 +48,7 @@ describe('GET /api/repos', () => {
       rateLimit: expect.any(Object),
     }));
     expect(res.body).toHaveProperty('lastFetch');
+    expect(res.body).toHaveProperty('syncing');
     expect(res.body.repos.find((r) => r.id === REPO.id)).toBeTruthy();
   });
 });
@@ -143,18 +144,99 @@ describe('POST /api/reorder', () => {
   });
 });
 
-describe('POST /api/refresh', () => {
-  it('returns 500 { ok:false } when the GitHub fetch throws', async () => {
-    fetchAllRepos.mockRejectedValueOnce(new Error('boom'));
-    const res = await request(app).post('/api/refresh');
-    expect(res.status).toBe(500);
-    expect(res.body).toEqual(expect.objectContaining({ ok: false, error: expect.stringMatching(/boom/) }));
+describe('POST /api/repos/:id/ignore', () => {
+  it('rejects a non-boolean ignored value with 400', async () => {
+    const res = await request(app).post(`/api/repos/${REPO.id}/ignore`).send({ ignored: 'yes' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/boolean/);
   });
 
-  it('returns ok with a count on success', async () => {
-    fetchAllRepos.mockResolvedValueOnce([REPO]);
+  it('persists the ignore flag and surfaces it in the payload', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/ignore`).send({ ignored: true });
+    let board = await request(app).get('/api/repos');
+    expect(board.body.repos.find((r) => r.id === REPO.id).ignored).toBe(true);
+
+    await request(app).post(`/api/repos/${REPO.id}/ignore`).send({ ignored: false });
+    board = await request(app).get('/api/repos');
+    expect(board.body.repos.find((r) => r.id === REPO.id).ignored).toBe(false);
+  });
+});
+
+describe('notices', () => {
+  it('rejects an empty notice body with 400', async () => {
+    const res = await request(app).post(`/api/repos/${REPO.id}/notices`).send({ body: '   ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/non-empty/);
+  });
+
+  it('adds notices, surfaces latest + count on the board, and lists them newest-first', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/notices`).send({ body: 'first note' });
+    await request(app).post(`/api/repos/${REPO.id}/notices`).send({ body: 'second note' });
+
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.notice_count).toBe(2);
+    expect(repo.latest_notice.body).toBe('second note');
+
+    const list = await request(app).get(`/api/repos/${REPO.id}/notices`);
+    expect(list.body.notices.map((n) => n.body)).toEqual(['second note', 'first note']);
+  });
+
+  it('returns all notices sortable by date and repo name', async () => {
+    const desc = await request(app).get('/api/notices?sort=date&dir=desc');
+    expect(desc.status).toBe(200);
+    expect(desc.body.notices.length).toBeGreaterThanOrEqual(2);
+    expect(desc.body.notices[0].body).toBe('second note');
+
+    const asc = await request(app).get('/api/notices?sort=date&dir=asc');
+    expect(asc.body.notices[0].body).toBe('first note');
+
+    const byRepo = await request(app).get('/api/notices?sort=repo&dir=asc');
+    expect(byRepo.status).toBe(200);
+    expect(byRepo.body.notices.every((n) => typeof n.full_name === 'string' || n.full_name === null)).toBe(true);
+  });
+
+  it('deletes a notice and updates the count', async () => {
+    const list = await request(app).get(`/api/repos/${REPO.id}/notices`);
+    const target = list.body.notices[0].id;
+
+    const del = await request(app).delete(`/api/notices/${target}`);
+    expect(del.body).toEqual({ ok: true });
+
+    const after = await request(app).get('/api/repos');
+    const repo = after.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.notice_count).toBe(1);
+  });
+});
+
+describe('POST /api/refresh', () => {
+  it('queues a background sync and returns immediately without blocking on GitHub', async () => {
+    let resolveFetch;
+    fetchAllRepos.mockImplementationOnce(() => new Promise((r) => { resolveFetch = r; }));
+
     const res = await request(app).post('/api/refresh');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(expect.objectContaining({ ok: true, count: 1 }));
+    expect(res.body).toEqual(expect.objectContaining({ ok: true, queued: true, syncing: true }));
+
+    // The board reports the in-flight sync while the GitHub fetch is pending.
+    const mid = await request(app).get('/api/repos');
+    expect(mid.body.syncing).toBe(true);
+
+    // Let the queued fetch finish so it doesn't leak into later tests.
+    resolveFetch([REPO]);
+    await new Promise((r) => setTimeout(r, 0));
+    const done = await request(app).get('/api/repos');
+    expect(done.body.syncing).toBe(false);
+  });
+
+  it('swallows a failed background fetch and surfaces it via lastError', async () => {
+    fetchAllRepos.mockRejectedValueOnce(new Error('boom'));
+    const res = await request(app).post('/api/refresh');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 10));
+    const board = await request(app).get('/api/repos');
+    expect(board.body.lastError).toMatch(/boom/);
   });
 });

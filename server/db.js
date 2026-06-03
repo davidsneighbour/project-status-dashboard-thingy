@@ -26,8 +26,29 @@ db.exec(`
     priority_set_at TEXT,             -- ISO time of the last triage or "I looked" touch
     inactivity_days INTEGER,          -- per-repo override; NULL = use the global default
     position        INTEGER DEFAULT 0,-- ordering within a column (for drag sorting)
+    ignored         INTEGER DEFAULT 0,-- 1 = hidden from the board unless "show ignored" is on
     updated_at      TEXT
   );
 `);
+
+// Lightweight migration: add columns introduced after the first schema so
+// existing databases pick them up without a manual reset.
+const repoStateColumns = db.prepare(`PRAGMA table_info(repo_state)`).all().map((c) => c.name);
+if (!repoStateColumns.includes('ignored')) {
+  db.exec(`ALTER TABLE repo_state ADD COLUMN ignored INTEGER DEFAULT 0`);
+}
+
+// Free-form, timestamped notices attached to a repo. Many per repo; the newest
+// is surfaced on the card, and the full history is browsable in the UI.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS repo_notice (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id    INTEGER NOT NULL,
+    full_name  TEXT,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_notice_repo ON repo_notice (repo_id, id)`);
 
 export default db;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDayColumns, defaultFilters, filterRepos, groupRepos, repoMatchesQuery } from './board.js';
+import { buildDayColumns, defaultFilters, filterRepos, groupRepos, repoMatchesQuery, sortNotices } from './board.js';
 
 const repos = [
     { id: 1, name: 'own-live', description: 'alpha', language: 'JS', fork: false, archived: false, column: 'day-0', position: 2 },
@@ -19,6 +19,38 @@ describe('filterRepos', () => {
 
     it('matches search term against name/description/language', () => {
         expect(filterRepos(repos, 'go', defaultFilters).map((repo) => repo.id)).toEqual([3]);
+    });
+
+    it('hides ignored repos by default and shows them when showIgnored is on', () => {
+        const withIgnored = [...repos, { id: 9, name: 'hidden', fork: false, archived: false, ignored: true }];
+        expect(filterRepos(withIgnored, '', defaultFilters).map((r) => r.id)).not.toContain(9);
+        expect(filterRepos(withIgnored, '', defaultFilters, true).map((r) => r.id)).toContain(9);
+    });
+});
+
+describe('sortNotices', () => {
+    const notices = [
+        { id: 1, full_name: 'b/repo', created_at: '2026-06-01T00:00:00.000Z' },
+        { id: 2, full_name: 'a/repo', created_at: '2026-06-03T00:00:00.000Z' },
+        { id: 3, full_name: 'c/repo', created_at: '2026-06-02T00:00:00.000Z' },
+    ];
+
+    it('sorts by date descending by default', () => {
+        expect(sortNotices(notices).map((n) => n.id)).toEqual([2, 3, 1]);
+    });
+
+    it('sorts by date ascending', () => {
+        expect(sortNotices(notices, 'date', 'asc').map((n) => n.id)).toEqual([1, 3, 2]);
+    });
+
+    it('sorts by repo name', () => {
+        expect(sortNotices(notices, 'repo', 'asc').map((n) => n.full_name)).toEqual(['a/repo', 'b/repo', 'c/repo']);
+    });
+
+    it('does not mutate the input array', () => {
+        const input = [...notices];
+        sortNotices(input, 'repo', 'desc');
+        expect(input.map((n) => n.id)).toEqual([1, 2, 3]);
     });
 });
 

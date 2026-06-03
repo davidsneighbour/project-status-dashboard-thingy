@@ -21,30 +21,65 @@ let repoCache = [];
 let lastFetch = null;
 let lastError = null;
 let cacheReady = false; // false until the first successful GitHub fetch completes
+let syncing = false; // true while a GitHub fetch is in flight
 
 async function refreshRepos() {
-  repoCache = await fetchAllRepos();
-  lastFetch = new Date().toISOString();
-  lastError = null;
-  cacheReady = true;
+  syncing = true;
+  try {
+    const fetched = await fetchAllRepos();
+    // Only swap the cache in once the fetch has fully succeeded, so an in-flight
+    // sync never momentarily empties the board.
+    repoCache = fetched;
+    lastFetch = new Date().toISOString();
+    lastError = null;
+    cacheReady = true;
 
-  // Make sure every repo has a state row so settings can be attached later.
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO repo_state (repo_id, full_name, updated_at) VALUES (?, ?, ?)`
-  );
-  const now = new Date().toISOString();
-  const tx = db.transaction((repos) => {
-    for (const r of repos) insert.run(r.id, r.full_name, now);
+    // Make sure every repo has a state row so settings can be attached later.
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO repo_state (repo_id, full_name, updated_at) VALUES (?, ?, ?)`
+    );
+    const now = new Date().toISOString();
+    const tx = db.transaction((repos) => {
+      for (const r of repos) insert.run(r.id, r.full_name, now);
+    });
+    tx(repoCache);
+    return repoCache;
+  } finally {
+    syncing = false;
+  }
+}
+
+// Fire-and-forget background sync. Returns true if a new sync was started, false
+// if one was already running. refreshRepos() flips `syncing` true synchronously
+// before its first await, so a concurrent call here can't double-queue.
+function queueRefresh() {
+  if (syncing) return false;
+  refreshRepos().catch((e) => {
+    lastError = String(e.message || e);
+    console.warn(`  [sync] GitHub fetch failed: ${lastError}`);
   });
-  tx(repoCache);
-  return repoCache;
+  return true;
 }
 
 function buildPayload() {
   const states = db.prepare('SELECT * FROM repo_state').all();
   const byId = new Map(states.map((s) => [s.repo_id, s]));
+
+  // Newest notice per repo (highest id) for the card, plus a per-repo count.
+  const latestNotices = db
+    .prepare(
+      `SELECT n.repo_id, n.body, n.created_at
+         FROM repo_notice n
+         JOIN (SELECT repo_id, MAX(id) AS max_id FROM repo_notice GROUP BY repo_id) m
+           ON n.id = m.max_id`
+    )
+    .all();
+  const latestByRepo = new Map(latestNotices.map((n) => [n.repo_id, { body: n.body, created_at: n.created_at }]));
+  const noticeCounts = db.prepare('SELECT repo_id, COUNT(*) AS n FROM repo_notice GROUP BY repo_id').all();
+  const countByRepo = new Map(noticeCounts.map((c) => [c.repo_id, c.n]));
+
   return repoCache.map((r) => {
-    const s = byId.get(r.id) || { priority: null, priority_set_at: null, inactivity_days: null, position: 0 };
+    const s = byId.get(r.id) || { priority: null, priority_set_at: null, inactivity_days: null, position: 0, ignored: 0 };
     return {
       ...r,
       priority: s.priority,
@@ -52,6 +87,9 @@ function buildPayload() {
       inactivity_days: s.inactivity_days,
       effective_inactivity_days: s.inactivity_days ?? DEFAULT_INACTIVITY_DAYS,
       position: s.position ?? 0,
+      ignored: Boolean(s.ignored),
+      notice_count: countByRepo.get(r.id) ?? 0,
+      latest_notice: latestByRepo.get(r.id) ?? null,
       ...effectiveState(s, DEFAULT_INACTIVITY_DAYS),
     };
   });
@@ -83,6 +121,21 @@ const inactivityStmt = db.prepare(`
     updated_at = excluded.updated_at
 `);
 const positionStmt = db.prepare(`UPDATE repo_state SET position = ?, updated_at = ? WHERE repo_id = ?`);
+const setIgnoredStmt = db.prepare(`
+  INSERT INTO repo_state (repo_id, full_name, ignored, updated_at)
+  VALUES (@id, @full_name, @ignored, @now)
+  ON CONFLICT(repo_id) DO UPDATE SET
+    ignored = excluded.ignored,
+    updated_at = excluded.updated_at
+`);
+const addNoticeStmt = db.prepare(`
+  INSERT INTO repo_notice (repo_id, full_name, body, created_at)
+  VALUES (@id, @full_name, @body, @now)
+`);
+const noticesForRepoStmt = db.prepare(
+  `SELECT id, repo_id, full_name, body, created_at FROM repo_notice WHERE repo_id = ? ORDER BY id DESC`
+);
+const deleteNoticeStmt = db.prepare(`DELETE FROM repo_notice WHERE id = ?`);
 
 const findRepo = (id) => repoCache.find((r) => r.id === id);
 
@@ -94,6 +147,7 @@ app.get('/api/repos', (req, res) => {
   res.json({
     repos: buildPayload(),
     cacheReady,
+    syncing,
     lastFetch,
     lastError,
     defaultInactivityDays: DEFAULT_INACTIVITY_DAYS,
@@ -103,14 +157,11 @@ app.get('/api/repos', (req, res) => {
   });
 });
 
-app.post('/api/refresh', async (req, res) => {
-  try {
-    await refreshRepos();
-    res.json({ ok: true, count: repoCache.length, repos: buildPayload(), cacheReady, lastFetch });
-  } catch (e) {
-    lastError = String(e.message || e);
-    res.status(500).json({ ok: false, error: lastError });
-  }
+// Queue a background sync and return immediately — the frontend polls
+// /api/repos and picks up the result once `syncing` flips back to false.
+app.post('/api/refresh', (req, res) => {
+  const started = queueRefresh();
+  res.json({ ok: true, queued: started, syncing, cacheReady, lastFetch });
 });
 
 app.post('/api/repos/:id/priority', (req, res) => {
@@ -177,6 +228,54 @@ app.post('/api/reorder', (req, res) => {
   res.json({ ok: true });
 });
 
+// Ignore flag — ignored repos drop off the board unless "show ignored" is on.
+app.post('/api/repos/:id/ignore', (req, res) => {
+  const id = Number(req.params.id);
+  const { ignored } = req.body || {};
+  if (typeof ignored !== 'boolean') return res.status(400).json({ error: 'ignored must be a boolean' });
+  setIgnoredStmt.run({
+    id,
+    full_name: findRepo(id)?.full_name ?? null,
+    ignored: ignored ? 1 : 0,
+    now: new Date().toISOString(),
+  });
+  res.json({ ok: true });
+});
+
+// ---- Notices ---------------------------------------------------------------
+app.post('/api/repos/:id/notices', (req, res) => {
+  const id = Number(req.params.id);
+  const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+  if (!body) return res.status(400).json({ error: 'body must be a non-empty string' });
+  const info = addNoticeStmt.run({
+    id,
+    full_name: findRepo(id)?.full_name ?? null,
+    body,
+    now: new Date().toISOString(),
+  });
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+
+app.get('/api/repos/:id/notices', (req, res) => {
+  res.json({ notices: noticesForRepoStmt.all(Number(req.params.id)) });
+});
+
+// All notices across every repo, sortable by date or repo name.
+app.get('/api/notices', (req, res) => {
+  const dir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
+  const orderBy =
+    req.query.sort === 'repo' ? `full_name ${dir}, created_at ${dir}` : `created_at ${dir}, id ${dir}`;
+  const notices = db
+    .prepare(`SELECT id, repo_id, full_name, body, created_at FROM repo_notice ORDER BY ${orderBy}`)
+    .all();
+  res.json({ notices });
+});
+
+app.delete('/api/notices/:noticeId', (req, res) => {
+  deleteNoticeStmt.run(Number(req.params.noticeId));
+  res.json({ ok: true });
+});
+
 // ---- Static client (built by Vite) ----------------------------------------
 const publicDir = path.join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
@@ -185,29 +284,21 @@ if (fs.existsSync(publicDir)) {
 }
 
 function startServer() {
-  app.listen(PORT, async () => {
+  app.listen(PORT, () => {
     console.log(`\n  Repo Triage Dashboard → http://localhost:${PORT}\n`);
     console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${SYNC_INTERVAL_MINUTES}m`);
 
+    // Kick off the initial GitHub load in the background so a slow fetch never
+    // blocks the server from accepting requests. The frontend polls /api/repos
+    // and shows its cached board (or a "fetching" state) until cacheReady flips.
     if (SYNC_ON_STARTUP) {
-      try {
-        await refreshRepos();
-        console.log(`  Loaded ${repoCache.length} repositories from GitHub.`);
-      } catch (e) {
-        lastError = String(e.message || e);
-        console.warn(`  Initial GitHub fetch failed: ${lastError}`);
-      }
+      queueRefresh();
+      console.log('  Background GitHub sync started.');
     }
 
     if (SYNC_AUTO) {
-      setInterval(async () => {
-        try {
-          await refreshRepos();
-          console.log(`  [auto-sync] Refreshed ${repoCache.length} repos from GitHub.`);
-        } catch (e) {
-          lastError = String(e.message || e);
-          console.warn(`  [auto-sync] GitHub fetch failed: ${lastError}`);
-        }
+      setInterval(() => {
+        if (queueRefresh()) console.log('  [auto-sync] Background GitHub sync started.');
       }, SYNC_INTERVAL_MINUTES * 60 * 1000);
     }
   });

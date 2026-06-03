@@ -9,8 +9,13 @@ export function repoMatchesQuery(repo, query) {
     return haystack.includes(term);
 }
 
-export function filterRepos(repos, query, filters) {
+// `showIgnored` is an independent axis from the inclusive own/forks/archived
+// filters: ignored repos are dropped first, regardless of the other toggles,
+// unless the global "show ignored" switch is on.
+export function filterRepos(repos, query, filters, showIgnored = false) {
     return repos.filter((repo) => {
+        if (repo.ignored && !showIgnored) return false;
+
         const isOwn = !repo.fork && !repo.archived;
         const visible =
             (filters.showOwn && isOwn) ||
@@ -19,6 +24,19 @@ export function filterRepos(repos, query, filters) {
         if (!visible) return false;
 
         return repoMatchesQuery(repo, query);
+    });
+}
+
+// Sort a flat list of notices by date or repo name, ascending or descending.
+// Used by the notices dialog for both single-repo and all-repo views.
+export function sortNotices(notices, sort = 'date', dir = 'desc') {
+    const mul = dir === 'asc' ? 1 : -1;
+    return [...notices].sort((a, b) => {
+        if (sort === 'repo') {
+            const byName = (a.full_name || '').localeCompare(b.full_name || '');
+            if (byName) return byName * mul;
+        }
+        return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * mul;
     });
 }
 

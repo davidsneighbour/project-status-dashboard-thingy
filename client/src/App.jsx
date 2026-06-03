@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, CircleHelp, GitFork, RefreshCw, Search, Settings2, User, X } from 'lucide-react';
-import mermaid from 'mermaid';
+import { Archive, CircleHelp, EyeOff, GitFork, RefreshCw, Search, Settings2, StickyNote, Trash2, User, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api.js';
 import { timeAgo, calendarLabel } from './lib/date.js';
-import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos } from './lib/board.js';
+import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos, sortNotices } from './lib/board.js';
 import helpMarkdown from './help.md?raw';
+import helpDiagramSvg from './help-diagram.svg?raw';
 
 const ACCENT = {
   neutral: { dot: 'bg-neutral-500', head: 'text-neutral-300', edge: 'border-neutral-800' },
@@ -22,6 +22,7 @@ const BOARD_CACHE_KEY = 'repo-triage-board-cache-v1';
 const EMPTY_DATA = {
   repos: [],
   cacheReady: false,
+  syncing: false,
   defaultInactivityDays: 7,
   lastFetch: null,
   username: null,
@@ -62,6 +63,8 @@ const ICON = {
   own: User,
   forks: GitFork,
   archived: Archive,
+  ignored: EyeOff,
+  notices: StickyNote,
 };
 
 function Badge({ tone = 'neutral', children }) {
@@ -76,8 +79,9 @@ function Badge({ tone = 'neutral', children }) {
   return <span className={cx('rounded px-1.5 py-0.5 text-[10px] font-medium', tones[tone])}>{children}</span>;
 }
 
-function CardMenu({ repo, anchorRef, defaultInactivity, onSetChecked, onClearCheck, onSetInactivity, onClose }) {
+function CardMenu({ repo, anchorRef, defaultInactivity, onSetChecked, onClearCheck, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onClose }) {
   const [days, setDays] = useState(repo.inactivity_days ?? '');
+  const [notice, setNotice] = useState('');
   const [pos, setPos] = useState(null);
 
   // Anchor the popover to the trigger via fixed positioning so the column's
@@ -157,6 +161,52 @@ function CardMenu({ repo, anchorRef, defaultInactivity, onSetChecked, onClearChe
           </div>
           <p className="mt-1 px-1 text-[10px] text-neutral-600">Blank = default ({defaultInactivity}d)</p>
         </div>
+
+        <div className="mt-2 border-t border-neutral-800 pt-2">
+          <button
+            onClick={() => {
+              onSetIgnored(repo.id, !repo.ignored);
+              onClose();
+            }}
+            className="w-full rounded-md bg-neutral-800 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700"
+          >
+            {repo.ignored ? 'Unignore repo' : 'Ignore repo'}
+          </button>
+        </div>
+
+        <div className="mt-2 border-t border-neutral-800 pt-2">
+          <label className="block px-1 text-[10px] uppercase tracking-widest text-neutral-500">Notice</label>
+          <textarea
+            value={notice}
+            onChange={(e) => setNotice(e.target.value)}
+            rows={2}
+            placeholder="add a note..."
+            aria-label="New notice"
+            className="mt-1 w-full resize-none rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-xs text-neutral-100 outline-none focus:border-neutral-500"
+          />
+          <div className="mt-1 flex items-center gap-1">
+            <button
+              disabled={notice.trim() === ''}
+              onClick={() => {
+                onAddNotice(repo.id, notice.trim());
+                setNotice('');
+                onClose();
+              }}
+              className="rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-40"
+            >
+              Add
+            </button>
+            <button
+              onClick={() => {
+                onViewNotices(repo.id);
+                onClose();
+              }}
+              className="rounded-md px-2 py-1 text-xs text-neutral-400 hover:text-neutral-200"
+            >
+              View all ({repo.notice_count ?? 0})
+            </button>
+          </div>
+        </div>
       </div>
     </>,
     document.body
@@ -164,40 +214,6 @@ function CardMenu({ repo, anchorRef, defaultInactivity, onSetChecked, onClearChe
 }
 
 function HelpDialog({ onClose }) {
-  const [mermaidError, setMermaidError] = useState(null);
-  const mermaidNodes = useMemo(() => [], []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const renderMermaid = async () => {
-      if (!mermaidNodes.length) {
-        setMermaidError(null);
-        return;
-      }
-
-      try {
-        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
-        mermaidNodes.forEach((node, index) => {
-          node.removeAttribute('data-processed');
-          node.id = `help-mermaid-${index}-${Date.now()}`;
-        });
-        await mermaid.run({ nodes: mermaidNodes });
-        if (!cancelled) setMermaidError(null);
-      } catch {
-        if (!cancelled) {
-          setMermaidError('Unable to render Mermaid diagram. Markdown help is still available.');
-        }
-      }
-    };
-
-    renderMermaid();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mermaidNodes]);
-
   return (
     <>
       <div className="fixed inset-0 z-30 bg-neutral-950/80" onClick={onClose} />
@@ -217,12 +233,6 @@ function HelpDialog({ onClose }) {
         </header>
 
         <div className="max-h-[calc(88vh-64px)] overflow-auto px-4 py-3 text-xs text-neutral-300">
-          {mermaidError && (
-            <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-              {mermaidError}
-            </div>
-          )}
-
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -233,20 +243,18 @@ function HelpDialog({ onClose }) {
               li: ({ children }) => <li>{children}</li>,
               code: ({ className, children }) => {
                 const match = /language-(\w+)/.exec(className || '');
-                const code = String(children).replace(/\n$/, '');
 
+                // The flow diagram is pre-rendered to SVG at build time (see
+                // scripts/build-help-diagram.mjs) so we never run Mermaid in the
+                // browser — that rendering was unreliable and showed a fallback.
                 if (match?.[1] === 'mermaid') {
                   return (
-                    <div className="mb-3 overflow-auto rounded-md border border-neutral-800 bg-neutral-950 p-3">
-                      <div
-                        ref={(node) => {
-                          if (node && !mermaidNodes.includes(node)) mermaidNodes.push(node);
-                        }}
-                        className="mermaid text-[11px]"
-                      >
-                        {code}
-                      </div>
-                    </div>
+                    <figure
+                      role="img"
+                      aria-label="Repo.triage data-loading flow diagram"
+                      className="mb-3 overflow-auto rounded-md border border-neutral-800 bg-neutral-950 p-3 [&>svg]:h-auto [&>svg]:w-full"
+                      dangerouslySetInnerHTML={{ __html: helpDiagramSvg }}
+                    />
                   );
                 }
 
@@ -263,6 +271,117 @@ function HelpDialog({ onClose }) {
         </div>
       </section>
     </>
+  );
+}
+
+function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged }) {
+  const [notices, setNotices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sort, setSort] = useState('date');
+  const [dir, setDir] = useState('desc');
+
+  const isAll = scope === 'all';
+  const repo = isAll ? null : repos.find((r) => r.id === scope);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = isAll ? await api.allNotices() : await api.repoNotices(scope);
+      setNotices(res.notices || []);
+    } finally {
+      setLoading(false);
+    }
+  }, [isAll, scope]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const sorted = useMemo(() => sortNotices(notices, sort, dir), [notices, sort, dir]);
+
+  const removeNotice = async (noticeId) => {
+    await api.deleteNotice(noticeId);
+    await reload();
+    onChanged?.();
+  };
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-30 bg-neutral-950/80" onClick={onClose} />
+      <section className="fixed inset-x-4 top-6 z-40 mx-auto flex max-h-[88vh] max-w-3xl flex-col overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900">
+        <header className="flex items-start justify-between gap-3 border-b border-neutral-800 px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-neutral-100">Notices</h2>
+            <p className="truncate text-[11px] text-neutral-500">
+              {isAll ? 'all repositories' : repo?.full_name || repo?.name || 'repository'}
+              {!isAll && (
+                <button onClick={() => onScopeChange('all')} className="ml-2 text-neutral-400 underline hover:text-neutral-200">
+                  show all repos
+                </button>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
+              <button
+                onClick={() => setSort('date')}
+                className={cx('px-2 py-1', sort === 'date' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+              >
+                date
+              </button>
+              <button
+                onClick={() => setSort('repo')}
+                className={cx('px-2 py-1', sort === 'repo' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+              >
+                repo
+              </button>
+            </div>
+            <button
+              onClick={() => setDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              aria-label="Toggle sort direction"
+              className="rounded-md border border-neutral-700 px-2 py-1 text-[11px] tabular-nums text-neutral-300 hover:bg-neutral-800"
+            >
+              {dir === 'asc' ? '↑ asc' : '↓ desc'}
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close notices"
+              className="rounded-md border border-neutral-700 bg-neutral-900 p-1.5 text-neutral-300 hover:bg-neutral-800"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+
+        <div className="overflow-auto px-4 py-3">
+          {loading ? (
+            <p className="py-6 text-center text-xs text-neutral-600">loading...</p>
+          ) : sorted.length === 0 ? (
+            <p className="py-6 text-center text-xs text-neutral-700">no notices yet</p>
+          ) : (
+            <ul className="space-y-2">
+              {sorted.map((n) => (
+                <li key={n.id} className="flex items-start justify-between gap-3 rounded-md bg-neutral-950 px-3 py-2">
+                  <div className="min-w-0">
+                    {isAll && <p className="truncate text-[11px] font-medium text-neutral-300">{n.full_name || `repo ${n.repo_id}`}</p>}
+                    <p className="whitespace-pre-wrap break-words text-xs text-neutral-200">{n.body}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="text-[10px] tabular-nums text-neutral-500" title={new Date(n.created_at).toLocaleString()}>
+                      {timeAgo(n.created_at)}
+                    </span>
+                    <button onClick={() => removeNotice(n.id)} aria-label="Delete notice" className="text-neutral-600 hover:text-rose-300">
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </>,
+    document.body
   );
 }
 
@@ -309,6 +428,7 @@ function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onD
         {repo.archived ? <Badge tone="neutral">archived</Badge> : <Badge tone="sky">live</Badge>}
         {repo.fork && <Badge tone="neutral">fork</Badge>}
         {repo.language && <Badge tone="violet">{repo.language}</Badge>}
+        {repo.ignored && <Badge tone="neutral">ignored</Badge>}
       </div>
 
       <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-500">
@@ -323,6 +443,13 @@ function RepoCard({ repo, column, menuOpenId, onToggleMenu, onDragStartCard, onD
           <span>review in {repo.dueInDays}d</span>
         )}
       </div>
+
+      {repo.latest_notice && (
+        <div className="mt-2 flex items-start justify-between gap-2 rounded-md bg-neutral-950 px-2 py-1.5">
+          <p className="line-clamp-2 text-[11px] text-neutral-300">{repo.latest_notice.body}</p>
+          <span className="shrink-0 text-[10px] tabular-nums text-neutral-600">{timeAgo(repo.latest_notice.created_at)}</span>
+        </div>
+      )}
 
       {menuOpenId === repo.id && <CardMenu repo={repo} anchorRef={menuButtonRef} onClose={() => onToggleMenu(repo.id)} {...handlers} />}
     </div>
@@ -397,6 +524,8 @@ export default function App() {
   const SyncIcon = ICON.sync;
   const SearchIcon = ICON.search;
   const HelpIcon = ICON.help;
+  const IgnoredIcon = ICON.ignored;
+  const NoticesIcon = ICON.notices;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -405,6 +534,29 @@ export default function App() {
   const [q, setQ] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Notices dialog scope: null (closed) | 'all' | a repo id.
+  const [noticesScope, setNoticesScope] = useState(null);
+
+  // "Show ignored" is a global visibility switch, deliberately separate from
+  // the own/forks/archived inclusive filters and persisted under its own key.
+  const SHOW_IGNORED_KEY = 'repo-triage-show-ignored';
+  const [showIgnored, setShowIgnored] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_IGNORED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleShowIgnored = () =>
+    setShowIgnored((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHOW_IGNORED_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
 
   // ---- Visibility filters (persisted in localStorage) --------------------
   const FILTER_KEY = 'repo-triage-filters';
@@ -444,9 +596,20 @@ export default function App() {
   const load = useCallback(async () => {
     try {
       const d = await api.list();
-      setData(d);
-      setShowingCachedData(false);
-      writeBoardCache(d);
+      // The server hasn't finished its first GitHub fetch yet and returned an
+      // empty list. Don't blow away a populated cached board (or persist the
+      // empty payload) — keep showing what we have and let the poll retry.
+      const notReadyAndEmpty = !d.cacheReady && (!d.repos || d.repos.length === 0);
+      setData((prev) => {
+        if (notReadyAndEmpty && prev.repos.length > 0) {
+          return { ...d, repos: prev.repos };
+        }
+        return d;
+      });
+      if (d.cacheReady) {
+        setShowingCachedData(false);
+        writeBoardCache(d);
+      }
     } finally {
       setLoading(false);
     }
@@ -456,12 +619,15 @@ export default function App() {
     load();
   }, [load]);
 
+  // Poll while the backend is still warming up its cache or actively syncing,
+  // so a background GitHub fetch (startup or queued "sync") fills the board in
+  // without a manual reload.
   useEffect(() => {
-    if (!loading && !data.cacheReady) {
+    if (!loading && (!data.cacheReady || data.syncing)) {
       const t = setTimeout(load, 2000);
       return () => clearTimeout(t);
     }
-  }, [loading, data.cacheReady, load]);
+  }, [loading, data.cacheReady, data.syncing, load]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -471,6 +637,7 @@ export default function App() {
       }
       if (event.key === 'Escape') {
         setHelpOpen(false);
+        setNoticesScope(null);
       }
     };
 
@@ -478,13 +645,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Queue a background sync on the server and immediately re-read status. The
+  // poll loop (driven by `syncing`) pulls in the refreshed repos when ready, so
+  // the UI never blocks on the GitHub fetch.
   const refresh = async () => {
     setRefreshing(true);
     try {
       await api.refresh();
+      await load();
     } finally {
       setRefreshing(false);
-      await load();
     }
   };
 
@@ -493,6 +663,9 @@ export default function App() {
   const onSetChecked = (id, daysAgo = 0) => mutate(() => api.setChecked(id, daysAgo));
   const onClearCheck = (id) => mutate(() => api.setPriority(id, null));
   const onSetInactivity = (id, days) => mutate(() => api.setInactivity(id, days));
+  const onSetIgnored = (id, ignored) => mutate(() => api.setIgnored(id, ignored));
+  const onAddNotice = (id, body) => mutate(() => api.addNotice(id, body));
+  const onViewNotices = (scope) => setNoticesScope(scope);
   const onToggleMenu = (id) => setOpenMenuId((cur) => (cur === id ? null : id));
 
   const onDragStartCard = (e, id) => {
@@ -506,8 +679,8 @@ export default function App() {
   };
 
   const filtered = useMemo(() => {
-    return filterRepos(data.repos, q, filters);
-  }, [data.repos, q, filters]);
+    return filterRepos(data.repos, q, filters, showIgnored);
+  }, [data.repos, q, filters, showIgnored]);
 
   const dayColumns = useMemo(() => {
     return buildDayColumns(data.defaultInactivityDays, calendarLabel);
@@ -528,6 +701,9 @@ export default function App() {
     onSetChecked,
     onClearCheck,
     onSetInactivity,
+    onSetIgnored,
+    onAddNotice,
+    onViewNotices,
     defaultInactivity: data.defaultInactivityDays,
   };
 
@@ -567,11 +743,11 @@ export default function App() {
           </button>
           <button
             onClick={refresh}
-            disabled={refreshing || data.rateLimit?.authInvalid || data.rateLimit?.remaining === 0}
+            disabled={refreshing || data.syncing || data.rateLimit?.authInvalid || data.rateLimit?.remaining === 0}
             className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
           >
-            <SyncIcon className={cx('h-3.5 w-3.5', refreshing && 'animate-spin')} aria-hidden="true" />
-            {refreshing ? 'syncing...' : 'sync GitHub'}
+            <SyncIcon className={cx('h-3.5 w-3.5', (refreshing || data.syncing) && 'animate-spin')} aria-hidden="true" />
+            {refreshing || data.syncing ? 'syncing...' : 'sync GitHub'}
           </button>
         </div>
       </header>
@@ -621,6 +797,28 @@ export default function App() {
               show all
             </button>
           )}
+        </div>
+        <div className="flex items-center gap-2 border-l border-neutral-800 pl-3">
+          <button
+            onClick={toggleShowIgnored}
+            aria-pressed={showIgnored}
+            className={cx(
+              'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+              showIgnored
+                ? 'border-neutral-600 bg-neutral-800 text-neutral-200'
+                : 'border-neutral-800 bg-transparent text-neutral-600'
+            )}
+          >
+            <IgnoredIcon className="h-3 w-3" aria-hidden="true" />
+            show ignored
+          </button>
+          <button
+            onClick={() => setNoticesScope('all')}
+            className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"
+          >
+            <NoticesIcon className="h-3 w-3" aria-hidden="true" />
+            notices
+          </button>
         </div>
       </div>
 
@@ -674,6 +872,15 @@ export default function App() {
       </main>
 
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
+      {noticesScope != null && (
+        <NoticesDialog
+          scope={noticesScope}
+          repos={data.repos}
+          onClose={() => setNoticesScope(null)}
+          onScopeChange={setNoticesScope}
+          onChanged={load}
+        />
+      )}
     </div>
   );
 }

@@ -1,15 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import mermaid from 'mermaid';
 import App from './App.jsx';
 import { api } from './api.js';
-
-vi.mock('mermaid', () => ({
-  default: {
-    initialize: vi.fn(),
-    run: vi.fn().mockResolvedValue(undefined),
-  },
-}));
 
 vi.mock('./api.js', () => ({
   api: {
@@ -77,17 +69,15 @@ describe('App help dialog', () => {
     });
   });
 
-  it('shows fallback message when mermaid rendering fails', async () => {
-    mermaid.run.mockRejectedValueOnce(new Error('bad diagram'));
-
+  it('renders the pre-built flow diagram SVG without any mermaid fallback', async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Open help' }));
 
-    await waitFor(() => {
-      expect(
-        screen.getByText('Unable to render Mermaid diagram. Markdown help is still available.')
-      ).toBeInTheDocument();
-    });
+    const diagram = await screen.findByRole('img', { name: 'Repo.triage data-loading flow diagram' });
+    expect(diagram.querySelector('svg')).toBeTruthy();
+    expect(
+      screen.queryByText('Unable to render Mermaid diagram. Markdown help is still available.')
+    ).not.toBeInTheDocument();
   });
 });
