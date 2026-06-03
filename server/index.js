@@ -360,7 +360,9 @@ app.get('/api/reports/:kind', (req, res) => {
 const publicDir = path.join(__dirname, 'public');
 if (fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));
-  app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+  // SPA fallback. Express 5 (path-to-regexp v8) rejects a bare '*' path, so use
+  // a RegExp route to serve index.html for any GET not matched above.
+  app.get(/.*/, (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 }
 
 function startServer() {

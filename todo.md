@@ -5,12 +5,11 @@ what's next.*
 
 ## Manual additions
 
-* [x] `npm test` printed a Vite `esbuild`/`oxc` deprecation warning. Cause:
-  vitest 4 bundles a Rolldown Vite (v8) that prefers oxc, but the classic babel
-  React plugin (used for the prod build) sets the deprecated esbuild JSX options.
-  Harmless (oxc transforms JSX fine); the oxc React plugin needs Vite 6/7, which
-  conflicts with both our Vite 5 build and vitest's Vite 8. Resolved by filtering
-  just those lines via a `customLogger` in `client/vitest.config.js`.
+* [x] `npm test` printed a Vite `esbuild`/`oxc` deprecation warning — root cause
+  was an old toolchain (Vite 5 + `@vitejs/plugin-react` 4 against vitest's bundled
+  Rolldown Vite 8). **Properly fixed** by the dependency upgrade below: Vite 8 +
+  `@vitejs/plugin-react` 6 (Rolldown-native) + React 19 + Express 5. The temporary
+  `customLogger` filter is gone; output is clean.
 * [ ] check and merge all open PRs (owner action — not done automatically)
 
 ## Snapshot (current state)
