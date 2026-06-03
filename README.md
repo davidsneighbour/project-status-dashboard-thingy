@@ -211,6 +211,8 @@ npm run cli -- tag add me/dotfiles ci oss          # add tags
 npm run cli -- check me/dotfiles --days 0          # mark reviewed now
 npm run cli -- ignore me/old-thing                 # hide from the board
 npm run cli -- note add me/api "rotate the token"  # attach a notice
+npm run cli -- report stale --days 365             # markdown report
+npm run cli -- report owners --format csv > o.csv   # export csv
 ```
 
 A repo is `owner/name` (or a bare `name` when unambiguous). Override the API URL

@@ -9,7 +9,7 @@
 // reads/writes triage state, so it never needs a token of its own.
 import { pathToFileURL } from 'node:url';
 
-const VALUE_FLAGS = new Set(['api', 'days', 'owner', 'tag', 'language', 'lang']);
+const VALUE_FLAGS = new Set(['api', 'days', 'owner', 'tag', 'language', 'lang', 'format']);
 
 // ---- pure helpers (unit-tested) -------------------------------------------
 
@@ -124,6 +124,28 @@ async function call(base, method, path, body) {
 
 const getRepos = (base) => call(base, 'GET', '/api/repos');
 
+// Raw-text GET (reports can come back as markdown/csv, not JSON).
+async function callText(base, path) {
+  let res;
+  try {
+    res = await fetch(`${base}${path}`);
+  } catch {
+    throw new Error(`could not reach the repo.triage API at ${base}. Is the server running? (npm run server)`);
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = `API ${res.status} on GET ${path}`;
+    try {
+      const j = JSON.parse(text);
+      if (j.error) msg = j.error;
+    } catch {
+      /* not json */
+    }
+    throw new Error(msg);
+  }
+  return text;
+}
+
 async function withRepo(base, ident) {
   const { repos } = await getRepos(base);
   return resolveRepo(repos, ident);
@@ -145,6 +167,10 @@ Commands:
   tag add  <repo> <tag...>    Add one or more tags
   tag rm   <repo> <tag...>    Remove one or more tags
   note add <repo> <text...>   Attach a timestamped notice
+  report <kind> [--format md|csv|json] [--days N]
+                              Print a report. Kinds: summary, due,
+                              never-reviewed, stale, owners, languages,
+                              archived, active
   help
 
 A repo is "owner/name" (or a bare "name" when unambiguous).
@@ -216,6 +242,16 @@ async function run(argv, out = console.log) {
       } else {
         throw new Error('usage: tag add|rm <repo> <tag...>');
       }
+      return 0;
+    }
+    case 'report': {
+      const kind = positionals[0];
+      if (!kind) throw new Error('usage: report <kind> [--format md|csv|json] [--days N]');
+      const format = flags.format || (flags.json ? 'json' : 'md');
+      const qs = new URLSearchParams({ format });
+      if (flags.days !== undefined) qs.set('days', String(flags.days));
+      const text = await callText(base, `/api/reports/${encodeURIComponent(kind)}?${qs}`);
+      out(format === 'json' ? JSON.stringify(JSON.parse(text), null, 2) : text.replace(/\n$/, ''));
       return 0;
     }
     case 'note': {

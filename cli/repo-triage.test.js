@@ -83,13 +83,22 @@ describe('formatList', () => {
 
 function stubApi() {
   const calls = [];
-  const res = (body, status = 200) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
+  const res = (body, status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url, init) => {
       calls.push({ url, method: init?.method || 'GET', body: init?.body ? JSON.parse(init.body) : undefined });
       if (url.endsWith('/api/repos')) return res({ repos: REPOS });
       if (url.endsWith('/api/tags')) return res({ tags: [{ tag: 'infra', count: 1 }] });
+      if (url.includes('/api/reports/')) {
+        if (url.includes('format=json')) return res({ kind: 'summary', columns: ['metric', 'value'], rows: [['total repos', 2]] });
+        if (url.includes('format=csv')) return res('metric,value\ntotal repos,2\n');
+        return res('## Summary\n\n| metric | value |\n| --- | --- |\n| total repos | 2 |\n');
+      }
       return res({ ok: true });
     })
   );
@@ -185,6 +194,35 @@ describe('run', () => {
     await expect(run(['tag', 'wat', 'me/alpha', 'x'], out)).rejects.toThrow(/usage: tag/);
     await expect(run(['note', 'me/alpha', 'x'], out)).rejects.toThrow(/usage: note/);
     await expect(run(['check', 'me/alpha', '--days', '-2'], out)).rejects.toThrow(/non-negative/);
+  });
+
+  it('report defaults to markdown, honours --format and --days', async () => {
+    let calls = stubApi();
+    await run(['report', 'summary'], out);
+    expect(calls.find((c) => c.url.includes('/api/reports/summary'))?.url).toContain('format=md');
+    expect(out.mock.calls[0][0]).toMatch(/## Summary/);
+
+    vi.unstubAllGlobals();
+    calls = stubApi();
+    await run(['report', 'stale', '--format', 'csv', '--days', '90'], out);
+    const url = calls.find((c) => c.url.includes('/api/reports/stale'))?.url;
+    expect(url).toContain('format=csv');
+    expect(url).toContain('days=90');
+  });
+
+  it('report --json pretty-prints parsed JSON', async () => {
+    stubApi();
+    await run(['report', 'summary', '--json'], out);
+    expect(out.mock.calls[0][0]).toMatch(/"kind": "summary"/);
+  });
+
+  it('report requires a kind and surfaces API errors', async () => {
+    stubApi();
+    await expect(run(['report'], out)).rejects.toThrow(/usage: report/);
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: 'unknown report "x"' }) })));
+    await expect(run(['report', 'x'], out)).rejects.toThrow(/unknown report/);
   });
 
   it('rejects an unknown command', async () => {
