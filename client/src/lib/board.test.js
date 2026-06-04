@@ -101,9 +101,9 @@ describe('collectTags', () => {
 
 describe('sortReposForList', () => {
     const repos = [
-        { id: 1, name: 'banana', owner: 'me', priority: 2, language: 'Go', pushed_at: '2026-01-01T00:00:00.000Z', stargazers_count: 5, open_issues_count: 1, dueInDays: 3, checkedAgeDays: 2 },
-        { id: 2, name: 'apple', owner: 'dnbhq', priority: 1, language: 'JS', pushed_at: '2026-06-01T00:00:00.000Z', stargazers_count: 9, open_issues_count: 4, dueInDays: 1, checkedAgeDays: null },
-        { id: 3, name: 'cherry', owner: 'me', priority: null, language: 'Go', pushed_at: '2026-03-01T00:00:00.000Z', stargazers_count: 1, open_issues_count: 0, dueInDays: 7, checkedAgeDays: 0 },
+        { id: 1, name: 'banana', owner: 'me', priority: 2, language: 'Go', pushed_at: '2026-01-01T00:00:00.000Z', stargazers_count: 5, open_issues_count: 1, forks_count: 2, dueInDays: 3, checkedAgeDays: 2 },
+        { id: 2, name: 'apple', owner: 'dnbhq', priority: 1, language: 'JS', pushed_at: '2026-06-01T00:00:00.000Z', stargazers_count: 9, open_issues_count: 4, forks_count: 8, dueInDays: 1, checkedAgeDays: null },
+        { id: 3, name: 'cherry', owner: 'me', priority: null, language: 'Go', pushed_at: '2026-03-01T00:00:00.000Z', stargazers_count: 1, open_issues_count: 0, forks_count: 5, dueInDays: 7, checkedAgeDays: 0 },
     ];
     const ids = (col, dir) => sortReposForList(repos, col, dir).map((r) => r.id);
 
@@ -118,6 +118,7 @@ describe('sortReposForList', () => {
     it('sorts numeric/recency columns descending', () => {
         expect(ids('stars', 'desc')).toEqual([2, 1, 3]);
         expect(ids('pushed', 'desc')).toEqual([2, 3, 1]);
+        expect(ids('forks', 'desc')).toEqual([2, 3, 1]); // 8, 5, 2
     });
 
     it('sorts due ascending and treats a missing checked age as oldest-last', () => {

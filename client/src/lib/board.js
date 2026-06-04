@@ -64,7 +64,7 @@ export function filterRepos(repos, query, filters, showIgnored = false, tagFilte
 // `sortReposForList` flips the sign for descending and falls back to repo name
 // so the order is stable.
 const listPushedMs = (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0);
-export const LIST_COLUMNS = ['repo', 'owner', 'priority', 'language', 'pushed', 'stars', 'issues', 'due', 'checked'];
+export const LIST_COLUMNS = ['repo', 'owner', 'priority', 'language', 'pushed', 'stars', 'issues', 'forks', 'due', 'checked'];
 const LIST_SORTERS = {
     repo: (a, b) => (a.name || '').localeCompare(b.name || ''),
     owner: (a, b) => (a.owner || '').localeCompare(b.owner || ''),
@@ -73,6 +73,7 @@ const LIST_SORTERS = {
     pushed: (a, b) => listPushedMs(a) - listPushedMs(b),
     stars: (a, b) => (a.stargazers_count || 0) - (b.stargazers_count || 0),
     issues: (a, b) => (a.open_issues_count || 0) - (b.open_issues_count || 0),
+    forks: (a, b) => (a.forks_count || 0) - (b.forks_count || 0),
     due: (a, b) => (a.dueInDays ?? Infinity) - (b.dueInDays ?? Infinity),
     checked: (a, b) => (a.checkedAgeDays ?? Infinity) - (b.checkedAgeDays ?? Infinity),
 };

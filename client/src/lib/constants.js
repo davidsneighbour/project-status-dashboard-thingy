@@ -90,6 +90,7 @@ export const FIELD_OPTIONS = [
   { key: 'pushed', label: 'Pushed date' },
   { key: 'stars', label: 'Stars' },
   { key: 'issues', label: 'Open issues' },
+  { key: 'forks', label: 'Forks' },
   { key: 'notice', label: 'Notice preview' },
 ];
 export const DEFAULT_FIELDS = Object.fromEntries(FIELD_OPTIONS.map((f) => [f.key, true]));

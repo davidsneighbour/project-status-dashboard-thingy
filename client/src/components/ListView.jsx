@@ -70,6 +70,7 @@ function ListRow({ repo, showOwner, fields, selectedIds, onToggleSelect, menuOpe
       {show('pushed') && <td className="px-2 py-1 tabular-nums text-neutral-500">{timeAgo(repo.pushed_at)}</td>}
       {show('stars') && <td className="px-2 py-1 text-right tabular-nums text-neutral-500">{repo.stargazers_count || 0}</td>}
       {show('issues') && <td className="px-2 py-1 text-right tabular-nums text-neutral-500">{repo.open_issues_count || 0}</td>}
+      {show('forks') && <td className="px-2 py-1 text-right tabular-nums text-neutral-500">{repo.forks_count || 0}</td>}
       <td className={cx('px-2 py-1 tabular-nums', repo.needsCheckToday ? 'text-rose-300' : 'text-neutral-500')}>{dueLabel(repo)}</td>
       <td className="px-2 py-1 tabular-nums text-neutral-500">{checkedLabel(repo)}</td>
       <td className="px-2 py-1 text-right">
@@ -140,6 +141,7 @@ export function ListView({ repos, showOwner, fields = {}, onToggleSelect, ...row
             {show('pushed') && <Th col="pushed" label="Pushed" />}
             {show('stars') && <Th col="stars" label="★" className="text-right" />}
             {show('issues') && <Th col="issues" label="Issues" className="text-right" />}
+            {show('forks') && <Th col="forks" label="Forks" className="text-right" />}
             <Th col="due" label="Due" />
             <Th col="checked" label="Checked" />
             <th className="px-2 py-1.5" />

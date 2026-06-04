@@ -10,6 +10,7 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
   const SettingsIcon = ICON.settings;
   const StarIcon = ICON.star;
   const IssueIcon = ICON.issues;
+  const ForkIcon = ICON.forks;
   const TagIcon = ICON.tag;
   const menuButtonRef = useRef(null);
   const ownerTint = showOwner && repo.owner ? ownerColor(repo.owner) : null;
@@ -142,6 +143,12 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
             <span className="flex shrink-0 items-center gap-0.5 tabular-nums" title={`${repo.open_issues_count} open issues / PRs`}>
               <IssueIcon className="h-3 w-3" aria-hidden="true" />
               {repo.open_issues_count}
+            </span>
+          )}
+          {show('forks') && repo.forks_count > 0 && (
+            <span className="flex shrink-0 items-center gap-0.5 tabular-nums" title={`${repo.forks_count} forks`}>
+              <ForkIcon className="h-3 w-3" aria-hidden="true" />
+              {repo.forks_count}
             </span>
           )}
         </span>

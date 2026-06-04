@@ -423,8 +423,9 @@ otherwise just the total.
 * Badge row: flex-wrap, gap `6px`.
 * Metadata row: flex row, space-between, `label` scale. The left cluster is
   `pushed <age>` followed by optional **repo stats** — a star glyph + stargazer
-  count and an issue glyph + open-issue/PR count. Stats are muted (`text-muted`,
-  `tabular-nums`), each shown only when its count is `> 0`, and never carry an
+  count, an issue glyph + open-issue/PR count, and a fork glyph + fork count.
+  Stats are muted (`text-muted`, `tabular-nums`), each shown only when its count
+  is `> 0` (and its field toggle is on), and never carry an
   accent colour — they are reference data, not a signal.
 * **Card notice** — when a repo has at least one notice, the most recent one
   renders in a `card-notice` block below the metadata: `surface-subtle`

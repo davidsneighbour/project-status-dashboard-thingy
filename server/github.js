@@ -261,6 +261,13 @@ function mapRepo(r) {
     updated_at: r.updated_at,
     stargazers_count: r.stargazers_count,
     open_issues_count: r.open_issues_count,
+    // Cheap enrichment: these all ship in the REST repos-list response, so they
+    // cost no extra requests. Richer fields (open-PR count, CI status, latest
+    // release, last-commit) need per-repo gh api/GraphQL calls — deferred.
+    forks_count: r.forks_count ?? 0,
+    default_branch: r.default_branch ?? null,
+    topics: Array.isArray(r.topics) ? r.topics : [],
+    license: r.license?.spdx_id ?? r.license?.name ?? null,
   };
 }
 

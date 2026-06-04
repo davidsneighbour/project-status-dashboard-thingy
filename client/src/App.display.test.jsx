@@ -52,6 +52,19 @@ describe('card repo stats', () => {
     expect(screen.getByTitle('3 open issues / PRs')).toHaveTextContent('3');
   });
 
+  it('shows the forks count and hides it when the field is toggled off', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    api.list.mockResolvedValue(payload([card({ id: 1, name: 'forked', forks_count: 4 })]));
+
+    render(<App />);
+    await screen.findByRole('link', { name: 'forked' });
+    expect(screen.getByTitle('4 forks')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Card fields' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Forks' }));
+    expect(screen.queryByTitle('4 forks')).not.toBeInTheDocument();
+  });
+
   it('hides stats when counts are zero or missing', async () => {
     api.list.mockResolvedValue(payload([card({ id: 1, name: 'quiet', stargazers_count: 0, open_issues_count: 0 })]));
 

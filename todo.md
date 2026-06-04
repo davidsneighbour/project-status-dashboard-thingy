@@ -54,9 +54,13 @@ Priority key: **(P0)** next / quick win · **(P1)** soon · **(P2)** later.
 
 * [ ] **(P1)** Fetch through `gh api --paginate` (with REST fetch as fallback) to
   drop custom pagination and inherit `gh`'s auth, retry, and rate-limit handling.
-* [ ] **(P1)** Enrich repo metadata cheaply via `gh api`/GraphQL: open-PR count,
-  open-issue count, default branch, latest release, topics, CI status of default
-  branch, last-commit author/date.
+* [x] **(P1)** Enrich repo metadata — added the fields that ship **free** in the
+  REST repos-list response (no extra calls): `forks_count`, `default_branch`,
+  `topics`, `license`. Forks now show as a card stat + sortable list column
+  (toggle via the fields menu); branch/topics/license ride on the payload for
+  future use (topics→tags is its own P2). **Deferred (needs per-repo `gh api`/
+  GraphQL):** distinct open-PR count, latest release, CI status, last-commit
+  author/date.
 * [ ] **(P2)** Per-card `gh` quick actions: open in browser (`gh repo view --web`),
   list PRs/issues, create an issue — shelled out server-side, confirmed in UI.
 * [ ] **(P2)** Map GitHub repo **topics** → suggested tags (see Tags).

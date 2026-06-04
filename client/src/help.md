@@ -137,8 +137,8 @@ reloads; search, tag and priority are per-session queries.
   clamps descriptions to one line, and hides the notice preview. Your choice is
   remembered.
 * **Fields** — the toolbar **fields** menu toggles which card details show:
-  language, pushed date, stars, open issues, and the notice preview. Tune it to
-  the information density you want; remembered across reloads.
+  language, pushed date, stars, open issues, forks, and the notice preview. Tune
+  it to the information density you want; remembered across reloads.
 * **Sort** — the toolbar sort selector orders cards *within* each column:
   **Manual** (your drag order), **Name**, **Recently pushed**, **Stars**, or
   **Due soonest**. Also remembered. (Sorting by anything other than Manual

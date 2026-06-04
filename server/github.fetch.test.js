@@ -195,6 +195,31 @@ describe('fetchAllRepos — default (no owners configured)', () => {
     expect(repos[100]).not.toHaveProperty('extra_field_should_be_dropped');
     expect(repos[100]).toMatchObject({ id: 101, full_name: 'me/last', owner: 'me', owner_type: 'User', private: true, fork: true });
   });
+
+  it('maps the cheap enrichment fields (forks/default branch/topics/license) with sane defaults', async () => {
+    process.env.GITHUB_OWNERS = 'octocat';
+    const fetchMock = routeFetch([
+      ['/orgs/octocat/repos', () => makeRes({ status: 404, body: 'Not Found', headers: RATE_HEADERS })],
+      ['/users/octocat/repos', () => makeRes({
+        body: [
+          repo({ id: 1, full_name: 'octocat/full', owner: { login: 'octocat', type: 'User' }, forks_count: 7, default_branch: 'main', topics: ['cli', 'go'], license: { spdx_id: 'MIT' } }),
+          repo({ id: 2, full_name: 'octocat/bare', owner: { login: 'octocat', type: 'User' } }),
+        ],
+        headers: RATE_HEADERS,
+      })],
+      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const repos = await fetchAllRepos();
+    expect(repos.find((r) => r.id === 1)).toMatchObject({
+      forks_count: 7, default_branch: 'main', topics: ['cli', 'go'], license: 'MIT',
+    });
+    // Missing fields fall back to 0 / null / [].
+    expect(repos.find((r) => r.id === 2)).toMatchObject({
+      forks_count: 0, default_branch: null, topics: [], license: null,
+    });
+  });
 });
 
 describe('fetchAllRepos — configured owners', () => {
