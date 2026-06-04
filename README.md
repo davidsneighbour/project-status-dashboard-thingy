@@ -121,7 +121,15 @@ search, tag, and priority filters are transient per-session queries.
 
 ## Help panel (F1)
 
-The dashboard ships with an in-app help panel backed by Markdown content.
+The dashboard ships with an in-app **user guide** — an extensive walkthrough of
+every feature (board model, scheduling, priority, tags, notices, ignore,
+filtering, display, reports, sync/auth/owners, keyboard shortcuts), a full CLI
+command reference, and a configuration-variable table.
+
+Open it two ways:
+
+* Press `F1`, or
+* Click the **Help** button in the header.
 
 Keyboard:
 
@@ -131,7 +139,8 @@ Keyboard:
 
 Rendering boundaries:
 
-* Help content is loaded from `client/src/help.md` (`react-markdown` + `remark-gfm`).
+* Help content is loaded from `client/src/help.md` (`react-markdown` + `remark-gfm`,
+  with renderers for headings, lists, links, tables and code).
 * The flow diagram is **pre-rendered to a static SVG at build time**
     (`client/src/help-diagram.svg` via `scripts/build-help-diagram.mjs`) — Mermaid
     is never run in the browser.

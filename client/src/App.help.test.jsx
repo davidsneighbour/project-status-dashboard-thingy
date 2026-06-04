@@ -60,14 +60,27 @@ describe('App help dialog', () => {
 
     fireEvent.keyDown(window, { key: 'F1' });
     expect(await screen.findByRole('heading', { name: 'Help' })).toBeInTheDocument();
-    // Heading text mirrors the markdown source in help.md (sentence-cased).
-    expect(await screen.findByText('Repo.Triage help')).toBeInTheDocument();
+    // Heading text mirrors the markdown source in help.md.
+    expect(await screen.findByText('Repo·triage — user guide')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
     await waitFor(() => {
       expect(screen.queryByRole('heading', { name: 'Help' })).not.toBeInTheDocument();
     });
+  });
+
+  it('documents the major features and the CLI companion', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open help' }));
+
+    // Wait for the guide to mount, then assert the major sections are present.
+    await screen.findByText('Repo·triage — user guide');
+    expect(screen.getByText('Triage priority')).toBeInTheDocument();
+    expect(screen.getByText(/CLI companion/)).toBeInTheDocument();
+    expect(screen.getByText('Configuration reference')).toBeInTheDocument();
+    // The CLI command list and the configuration reference render as tables.
+    expect(screen.getAllByRole('table').length).toBeGreaterThanOrEqual(2);
   });
 
   it('renders the pre-built flow diagram SVG without any mermaid fallback', async () => {

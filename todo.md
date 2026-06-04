@@ -26,7 +26,14 @@ what's next.*
   priority (P1/P2/P3). Set it from the CardMenu or `repo-triage priority`; a
   coloured chip shows on cards; a toolbar "priority" popover filters by level
   (composes with every other filter). Decoupled from the check/schedule flow.
-* [ ] write an extensive documentation that can be loaded via F1 and a direct link in the UI, describing all features and how to use them (including the CLI companion app once it's implemented). Use Markdown format and include screenshots where helpful.
+* [x] write extensive documentation loaded via F1 and a direct link in the UI —
+  `client/src/help.md` is now a full user guide (the big picture, reading a card,
+  scheduling, priority, tags, notices, ignore, filtering, display, reports, sync/
+  auth/owners, keyboard shortcuts, the full CLI command table, and a config-var
+  reference). It opens via `F1` and the header **Help** button; the HelpDialog
+  markdown renderer gained h3/ol/links/bold/rules/table support to render it.
+  (Screenshots deferred — can't capture a real browser in this environment; the
+  guide describes the UI textually instead.)
 
 ## Snapshot (current state)
 
