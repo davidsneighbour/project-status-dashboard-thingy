@@ -91,6 +91,29 @@ describe('within-column sort', () => {
   });
 });
 
+describe('field visibility toggles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it('hides a field across cards when toggled off and persists it', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    api.list.mockResolvedValue(payload([card({ id: 1, name: 'busy', stargazers_count: 12, open_issues_count: 3 })]));
+
+    render(<App />);
+    await screen.findByRole('link', { name: 'busy' });
+    expect(screen.getByTitle('12 stargazers')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Card fields' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Stars' }));
+
+    expect(screen.queryByTitle('12 stargazers')).not.toBeInTheDocument();
+    expect(screen.getByTitle('3 open issues / PRs')).toBeInTheDocument(); // others unaffected
+    expect(JSON.parse(window.localStorage.getItem('repo-triage-fields')).stars).toBe(false);
+  });
+});
+
 describe('board group-by', () => {
   beforeEach(() => {
     vi.clearAllMocks();

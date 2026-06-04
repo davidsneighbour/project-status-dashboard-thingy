@@ -447,7 +447,8 @@ Full-width bar below header:
 * Right: a separate group, divided by a `border-l`, holding the **group-by**
   selector (Day schedule/Owner/Tag/Language), the **density** toggle, the
   within-column **sort** selector (Manual/Name/Recently pushed/Stars/Due
-  soonest), the global **show ignored** toggle, the **tag filter**, the
+  soonest), the **fields** menu (toggle language/pushed/stars/issues/notice
+  preview on cards), the global **show ignored** toggle, the **tag filter**, the
   **priority filter**, a **Reports** button, and a **Notices** button. These sit
   deliberately apart from the inclusive filter pills: ignoring is an independent
   visibility axis, the tag and priority filters are queries, group-by/sort/

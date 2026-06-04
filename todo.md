@@ -148,8 +148,9 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
   applied inside every column via `groupRepos(…, sortKey)`.
 * [ ] **(P1)** List/table view as an alternative to the board (sortable columns,
   good for bulk scanning and reports).
-* [ ] **(P2)** Field visibility toggles (stars, issues, language, pushed, notice
-  preview) so users tune information density.
+* [x] **(P2)** Field visibility toggles — a toolbar **fields** menu shows/hides
+  language, pushed date, stars, open issues, and the notice preview on cards.
+  Persisted to localStorage; gated in `RepoCard` via a `fields` prop.
 
 ### 6. Accessibility
 
