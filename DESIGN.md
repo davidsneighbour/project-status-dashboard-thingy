@@ -336,10 +336,12 @@ semantic rose/amber/sky system.
 
 * A small, fixed palette of muted hues is hashed deterministically from the
   owner login, so a given owner always gets the same colour.
-* It is the **only** place colour is chosen dynamically, so it is applied via
+* It is the main place colour is chosen dynamically, so it is applied via
   inline `style` (hex), not Tailwind classes — this is a deliberate, documented
   exception to the "no dynamic class names" rule, because the owner/tag sets are
-  unbounded and cannot be statically enumerated.
+  unbounded and cannot be statically enumerated. (The only other inline-hex use
+  is the fixed P1/P2/P3 priority dot; see Triage priority. Its chip background is
+  a static Tailwind class — only the dot is inline.)
 * Reserved semantic hues (rose = today, amber = near, sky = future, emerald =
   public, violet = language) are avoided so identity colour never reads as an
   urgency or status signal.
@@ -443,10 +445,10 @@ Full-width bar below header:
 * Left: text filter input (fixed `256px` width)
 * Middle: filter pills (own / forks / archived) + conditional "show all" button
 * Right: a separate group, divided by a `border-l`, holding the global **show
-  ignored** toggle, the **tag filter**, a **Reports** button, and a **Notices**
-  button. These sit deliberately apart from the inclusive filter pills: ignoring
-  is an independent visibility axis, the tag filter is a query, and the
-  Reports/Notices buttons open their dialogs.
+  ignored** toggle, the **tag filter**, the **priority filter**, a **Reports**
+  button, and a **Notices** button. These sit deliberately apart from the
+  inclusive filter pills: ignoring is an independent visibility axis, the tag
+  and priority filters are queries, and the Reports/Notices buttons open dialogs.
 
 ## Elevation & depth
 
@@ -574,19 +576,22 @@ this keeps it from being clipped by a column's `overflow-y-auto` scroll area.
 Contains these action groups, each separated by a `border-neutral-800` divider:
 
 1. **Review timing buttons** — "Checked now", "Move to Today", "Clear check date"
-2. **Per-repo review interval input** — number field + save button
-3. **Tags** — a `micro` label, the repo's current tags as removable chips (each
+2. **Priority** — a `micro` label and a four-button row (P1/P2/P3/None). The
+   active level is highlighted in its priority tone; clicking it again clears
+   the priority (toggle). Triage priority is an axis independent of scheduling.
+3. **Per-repo review interval input** — number field + save button
+4. **Tags** — a `micro` label, the repo's current tags as removable chips (each
    with an `×`), and a text field (with a `datalist` of existing tags for
    autocomplete) + "Add" button to attach a new tag. Adding an existing tag is a
    no-op. When the menu was opened via the card's "＋ tag" affordance, this input
    receives focus on open.
-4. **Ignore toggle** — a single full-width button reading "Ignore repo" /
+5. **Ignore toggle** — a single full-width button reading "Ignore repo" /
    "Unignore repo" depending on current state.
-5. **Notices** — a `micro` label, a multi-line text field for a new notice, an
+6. **Notices** — a `micro` label, a multi-line text field for a new notice, an
    "Add" button (disabled while the field is empty), and a "View all (N)" link
    that opens the Notices dialog scoped to this repo. `N` is the repo's notice
    count.
-6. Backdrop scrim (`fixed inset-0 z-10`) closes the menu on outside click.
+7. Backdrop scrim (`fixed inset-0 z-10`) closes the menu on outside click.
 
 Do not add new action groups without updating this document.
 
@@ -633,6 +638,24 @@ segmented toggle (shown once two or more tags are selected) and a "clear"
 action. Selection narrows the board to repos matching the chosen tags (union for
 "any", intersection for "all"); it composes with the text and inclusive filters.
 Like the text filters it is a transient query — not persisted.
+
+### Triage priority
+
+An independent triage axis (separate from scheduling): **P1** (high), **P2**
+(medium), **P3** (low), or none. Unlike owners/tags, the priority colour **is**
+a deliberate semantic accent — a warm→cool urgency ramp (P1 rose, P2 amber, P3
+sky) drawn from the state palette, not the categorical owner/tag palette. It is
+the one place a non-traffic-light accent encodes urgency, and it is reserved for
+this small fixed set.
+
+* **On the card** — prioritised repos show a `badge-tag`-shaped chip at the
+  start of the badge row, tinted in the priority tone (`P1`/`P2`/`P3` with a
+  leading dot). Untagged-by-priority repos show nothing, so the row stays clean.
+* **In the CardMenu** — the Priority group (see above) sets/toggles the level.
+* **Priority filter** — a toolbar button (`priority (N)`) opens a popover (same
+  portal/scrim pattern as the tag filter) with P1/P2/P3/None checkboxes. It
+  narrows the board to the selected levels (level 0 = "no priority"), composing
+  with every other filter. Transient — not persisted.
 
 ### Notices dialog
 

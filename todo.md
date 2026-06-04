@@ -16,7 +16,11 @@ what's next.*
 * [x] adding tags via interface is impossible or not easily found — each card
   now carries an always-visible dashed "＋ tag" chip (even when untagged) that
   opens the CardMenu focused on the tag input. No more hunting in the gear menu.
-* [ ] add a filter option (independent of others) for repo priority (1-2)
+* [x] add a filter option (independent of others) for repo priority (1-2) —
+  repurposed the vestigial `priority` column as a real, independent triage
+  priority (P1/P2/P3). Set it from the CardMenu or `repo-triage priority`; a
+  coloured chip shows on cards; a toolbar "priority" popover filters by level
+  (composes with every other filter). Decoupled from the check/schedule flow.
 * [ ] write an extensive documentation that can be loaded via F1 and a direct link in the UI, describing all features and how to use them (including the CLI companion app once it's implemented). Use Markdown format and include screenshots where helpful.
 
 ## Snapshot (current state)
@@ -45,8 +49,9 @@ Local-only day-schedule kanban for triaging GitHub repositories.
 
 * [x] `README.md` refreshed (owners, tags, notices, ignore, reports, CLI, gh
   auth, prebuilt help SVG, accessibility, Vite 8 / React 19 / Express 5 stack).
-* [ ] `repo_state.priority` (1–3) is vestigial — only the `null` path is used (to
-  clear a check). Decide: repurpose as triage priority, fold into tags, or drop.
+* [x] `repo_state.priority` (1–3) was vestigial — **decided: repurposed as a
+  real, independent triage priority** (set via CardMenu / `priority` CLI / the
+  `/priority` route; filtered in UI + CLI; decoupled from check via new `/clear`).
 * [ ] `App.jsx` is one ~1.3k-line file — extract components (Board, Column, Card,
   dialogs) as features land.
 

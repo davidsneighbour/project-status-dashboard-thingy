@@ -24,7 +24,7 @@ const card = (id, name, priority = null) => ({
 });
 
 const payload = {
-  repos: [card(1, 'alpha', 1), card(2, 'beta', 2), card(3, 'gamma', null)],
+  repos: [card(1, 'alpha', 1), card(2, 'beta', 2), card(3, 'gamma', null), card(4, 'delta', 3)],
   cacheReady: true, syncing: false, defaultInactivityDays: 7,
   lastFetch: '2026-06-03T00:00:00.000Z', username: null, owners: [],
   sourceWarnings: [], tokenPresent: true, lastError: null,
@@ -44,8 +44,9 @@ describe('triage priority', () => {
     await screen.findByRole('link', { name: 'alpha' });
     expect(screen.getByTitle('Priority 1 (high)')).toBeInTheDocument();
     expect(screen.getByTitle('Priority 2 (medium)')).toBeInTheDocument();
-    // gamma has no priority → no chip
-    expect(screen.queryByTitle('Priority 3 (low)')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Priority 3 (low)')).toBeInTheDocument();
+    // gamma has no priority → no chip for it (only the three prioritised cards)
+    expect(screen.getAllByTitle(/^Priority \d/)).toHaveLength(3);
   });
 
   it('sets a priority from the card menu', async () => {
@@ -79,5 +80,31 @@ describe('triage priority', () => {
     fireEvent.click(screen.getByRole('button', { name: 'P1' }));
 
     await waitFor(() => expect(api.setPriority).toHaveBeenCalledWith(1, null));
+  });
+
+  it('clears the priority from the menu with the None button', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open repository settings' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'None' }));
+
+    await waitFor(() => expect(api.setPriority).toHaveBeenCalledWith(1, null));
+  });
+
+  it('filters to unprioritised repos and clears the priority filter', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by priority' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /None/ }));
+
+    // Only gamma (no priority) remains.
+    expect(screen.getByRole('link', { name: 'gamma' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'alpha' })).not.toBeInTheDocument();
+
+    // The "clear" action resets the filter so every card returns.
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(await screen.findByRole('link', { name: 'alpha' })).toBeInTheDocument();
   });
 });

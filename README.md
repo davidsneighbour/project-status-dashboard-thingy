@@ -10,8 +10,9 @@ age (`DEFAULT_INACTIVITY_DAYS`), it returns to **Today** automatically.
 * Drag-drop **and keyboard** scheduling (`[` / `]` move the focused card)
 * Per-repo review cycle override; honest "checked today / Nd ago" age
 * Load from **multiple users and orgs** (`GITHUB_OWNERS`); per-card owner badge
-* **Tags** (chips + toolbar filter), **notices** (timestamped notes), and an
-  **ignore** flag with a global show-ignored toggle
+* **Tags** (chips + toolbar filter), **triage priority** (P1/P2/P3 with its own
+  filter), **notices** (timestamped notes), and an **ignore** flag with a global
+  show-ignored toggle
 * Inclusive repository filtering (`own`, `forks`, `archived`) + per-column filter
 * **Reports** (overdue / stale / per-owner / …) viewable in-app or exported as
   Markdown/CSV, shared with the **`repo-triage` CLI**
@@ -109,7 +110,14 @@ Examples:
 * `forks` only => all fork repos (fork live + fork archived)
 * all enabled => all repos
 
-Filter settings persist in browser `localStorage`.
+On top of these inclusive filters sit three **independent** narrowing axes that
+compose with the unions (and each other): the text search, the **tag** filter,
+and the **priority** filter (P1/P2/P3/None). Triage priority is its own axis,
+unrelated to the day-schedule — set it from a card's menu (or the CLI) and use
+the toolbar `priority` popover to focus on, say, just P1 + P2.
+
+The inclusive own/forks/archived settings persist in browser `localStorage`; the
+search, tag, and priority filters are transient per-session queries.
 
 ## Help panel (F1)
 
@@ -186,7 +194,8 @@ Stack: Express 5 + better-sqlite3 (`server/`), React 19 + Vite 8 + Tailwind v4
 | POST | `/api/refresh` | Queue a background GitHub refresh (non-blocking) |
 | POST | `/api/repos/:id/check` | `{ daysAgo }` set effective last-check age |
 | POST | `/api/repos/:id/inactivity` | `{ days }` per-repo review-cycle override |
-| POST | `/api/repos/:id/priority` | Legacy low-level state setter (used for clear) |
+| POST | `/api/repos/:id/priority` | `{ priority: 1\|2\|3\|null }` set triage priority (independent of scheduling) |
+| POST | `/api/repos/:id/clear` | Clear the schedule (anchor + check date); keeps priority |
 | POST | `/api/repos/:id/touch` | Reset the check timestamp to now |
 | POST | `/api/repos/:id/ignore` | `{ ignored }` hide/show a repo |
 | GET/POST/DELETE | `/api/repos/:id/notices` | List / add / (delete via `/api/notices/:id`) notes |
@@ -234,8 +243,10 @@ or `node cli/repo-triage.mjs <command>` (or install the `repo-triage` bin).
 
 ```bash
 npm run cli -- list --owner dnbhq --tag infra      # filter + list
+npm run cli -- list --priority 1,2                 # only P1/P2 repos
 npm run cli -- list --json | jq '.[].full_name'    # machine-readable
 npm run cli -- tag add me/dotfiles ci oss          # add tags
+npm run cli -- priority me/api 1                   # set triage priority P1
 npm run cli -- check me/dotfiles --days 0          # mark reviewed now
 npm run cli -- ignore me/old-thing                 # hide from the board
 npm run cli -- note add me/api "rotate the token"  # attach a notice

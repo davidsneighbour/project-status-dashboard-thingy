@@ -86,7 +86,7 @@ set in each `vitest.config.js` and fail the run on regression.
 
 ### CLI (`cli/`)
 
-* `repo-triage.mjs`: zero-runtime-dependency Node CLI that scripts triage state via the HTTP API (`list`, `ignore`, `check`, `tag`, `note`, …). Server must be running. Exposes pure helpers (`parseArgs`/`resolveRepo`/`filterReposCli`/`formatList`/`run`) for tests. `npm run cli -- <command>`.
+* `repo-triage.mjs`: zero-runtime-dependency Node CLI that scripts triage state via the HTTP API (`list`, `ignore`, `check`, `clear`, `priority`, `tag`, `note`, …). Server must be running. Exposes pure helpers (`parseArgs`/`resolveRepo`/`filterReposCli`/`formatList`/`run`) for tests. `npm run cli -- <command>`.
 
 ### Data model
 
@@ -125,7 +125,8 @@ Single-component React UI in `App.jsx`:
 | POST | `/api/refresh` | Manual GitHub refresh |
 | POST | `/api/repos/:id/check` | Set effective check age via `{ daysAgo }` |
 | POST | `/api/repos/:id/inactivity` | Set per-repo review age override via `{ days }` |
-| POST | `/api/repos/:id/priority` | Legacy low-level setter |
+| POST | `/api/repos/:id/priority` | Set triage priority via `{ priority: 1\|2\|3\|null }` (independent of scheduling) |
+| POST | `/api/repos/:id/clear` | Clear the scheduling state (anchor + checked_at); keeps priority |
 | POST | `/api/repos/:id/touch` | Reset check timestamp to now |
 | POST | `/api/reorder` | Save order positions |
 
