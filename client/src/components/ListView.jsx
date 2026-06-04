@@ -8,14 +8,26 @@ const checkedLabel = (r) =>
   r.checkedAgeDays == null ? '—' : r.checkedAgeDays === 0 ? 'today' : `${r.checkedAgeDays}d`;
 const dueLabel = (r) => (r.needsCheckToday ? 'today' : `${r.dueInDays}d`);
 
-function ListRow({ repo, showOwner, fields, menuOpenId, menuIntent, onToggleMenu, ...handlers }) {
+function ListRow({ repo, showOwner, fields, selectedIds, onToggleSelect, menuOpenId, menuIntent, onToggleMenu, ...handlers }) {
   const SettingsIcon = ICON.settings;
   const btnRef = useRef(null);
   const show = (k) => fields[k] !== false;
   const meta = PRIORITY_META[repo.priority];
+  const selected = selectedIds ? selectedIds.has(repo.id) : false;
 
   return (
-    <tr className="border-b border-neutral-800/60 hover:bg-neutral-900/50">
+    <tr className={cx('border-b border-neutral-800/60 hover:bg-neutral-900/50', selected && 'bg-neutral-900/70')}>
+      {onToggleSelect && (
+        <td className="px-2 py-1">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(repo.id)}
+            aria-label={`Select ${repo.name}`}
+            className="accent-neutral-400"
+          />
+        </td>
+      )}
       <td className="px-2 py-1">
         <a
           href={repo.html_url}
@@ -79,7 +91,7 @@ function ListRow({ repo, showOwner, fields, menuOpenId, menuIntent, onToggleMenu
 
 // Read/scan-oriented table alternative to the day-schedule board. Columns are
 // click-to-sort; the per-row gear opens the same CardMenu as a card.
-export function ListView({ repos, showOwner, fields = {}, ...rowProps }) {
+export function ListView({ repos, showOwner, fields = {}, onToggleSelect, ...rowProps }) {
   const [sortCol, setSortCol] = useState('repo');
   const [sortDir, setSortDir] = useState('asc');
   const show = (k) => fields[k] !== false;
@@ -119,6 +131,7 @@ export function ListView({ repos, showOwner, fields = {}, ...rowProps }) {
       <table className="w-full text-left text-[11px]">
         <thead className="sticky top-0 bg-neutral-950">
           <tr className="border-b border-neutral-800">
+            {onToggleSelect && <th className="px-2 py-1.5" />}
             <Th col="repo" label="Repo" />
             {showOwner && <Th col="owner" label="Owner" />}
             <Th col="priority" label="Priority" />
@@ -134,7 +147,7 @@ export function ListView({ repos, showOwner, fields = {}, ...rowProps }) {
         </thead>
         <tbody>
           {sorted.map((repo) => (
-            <ListRow key={repo.id} repo={repo} showOwner={showOwner} fields={fields} {...rowProps} />
+            <ListRow key={repo.id} repo={repo} showOwner={showOwner} fields={fields} onToggleSelect={onToggleSelect} {...rowProps} />
           ))}
         </tbody>
       </table>

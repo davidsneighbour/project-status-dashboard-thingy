@@ -81,6 +81,13 @@ Free-form labels for grouping repos however you like.
 * **Filter by tag** with the toolbar **tags** button. With two or more tags
   selected you get a **match any / all** toggle (union vs. intersection).
 
+## Bulk actions
+
+Tick the checkbox on one or more cards (or list rows) and a bulk bar appears:
+**Checked now**, **Move to Today**, **Clear check**, **Ignore**, **Unignore**,
+and a **tag** input — each applies to every selected repo at once. **Deselect**
+clears the selection.
+
 ## Notices
 
 Timestamped notes attached to a repo (e.g. "waiting on upstream release").

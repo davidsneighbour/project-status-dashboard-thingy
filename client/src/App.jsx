@@ -6,6 +6,7 @@ import { cx, ICON, SORT_LABELS, GROUP_BY_LABELS, DEFAULT_FIELDS } from './lib/co
 import { EMPTY_DATA, readBoardCache, writeBoardCache } from './lib/boardCache.js';
 import { Column } from './components/Column.jsx';
 import { ListView } from './components/ListView.jsx';
+import { BulkBar } from './components/BulkBar.jsx';
 import { HelpDialog } from './components/HelpDialog.jsx';
 import { NoticesDialog } from './components/NoticesDialog.jsx';
 import { ReportsDialog } from './components/ReportsDialog.jsx';
@@ -36,6 +37,8 @@ export default function App() {
   // When the card menu is opened via the "+ tag" affordance we want it to land
   // straight on the tag input; null means a plain settings open.
   const [menuIntent, setMenuIntent] = useState(null);
+  // Multi-select: a Set of selected repo ids for bulk actions.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [helpOpen, setHelpOpen] = useState(false);
   // Notices dialog scope: null (closed) | 'all' | a repo id.
   const [noticesScope, setNoticesScope] = useState(null);
@@ -284,6 +287,33 @@ export default function App() {
     setMenuIntent(intent);
   };
 
+  const onToggleSelect = (id) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Apply an action to every selected repo, then refresh once. `ids` is captured
+  // up front so the set can be cleared immediately for snappy feedback.
+  const bulkApply = async (fn) => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    clearSelection();
+    await Promise.all(ids.map((id) => fn(id)));
+    await load();
+  };
+  const bulkActions = {
+    checkedNow: () => bulkApply((id) => api.setChecked(id, 0)),
+    moveToday: () => bulkApply((id) => api.setChecked(id, data.defaultInactivityDays)),
+    clear: () => bulkApply((id) => api.clearSchedule(id)),
+    ignore: () => bulkApply((id) => api.setIgnored(id, true)),
+    unignore: () => bulkApply((id) => api.setIgnored(id, false)),
+    tag: (tag) => bulkApply((id) => api.addTag(id, tag)),
+  };
+
   const onDragStartCard = (e, id) => {
     e.dataTransfer.setData('text/plain', String(id));
     e.dataTransfer.effectAllowed = 'move';
@@ -299,6 +329,18 @@ export default function App() {
   }, [data.repos, q, filters, showIgnored, tagFilter, priorityFilter]);
 
   const availableTags = useMemo(() => collectTags(data.repos), [data.repos]);
+
+  // Drop selected ids that no longer exist after a refresh so the bulk bar can't
+  // act on (or count) repos that have gone away.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const exist = new Set(data.repos.map((r) => r.id));
+      const next = new Set();
+      for (const id of prev) if (exist.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data.repos]);
 
   // Drop selected tags that no longer exist on any repo (e.g. after removing the
   // last use of a tag) so the filter can't get stuck on a phantom tag.
@@ -376,6 +418,8 @@ export default function App() {
     onViewNotices,
     onAddTag,
     onRemoveTag,
+    selectedIds,
+    onToggleSelect,
     allTags: availableTags.map((t) => t.tag),
     defaultInactivity: data.defaultInactivityDays,
   };
@@ -605,6 +649,7 @@ export default function App() {
             Showing cached board while refreshing from GitHub.
           </div>
         )}
+        {selectedIds.size > 0 && <BulkBar count={selectedIds.size} actions={bulkActions} onClear={clearSelection} />}
         {loading || (!data.cacheReady && !showingCachedData) ? (
           <div className="grid h-40 place-items-center text-center text-sm text-neutral-600">
             <div>

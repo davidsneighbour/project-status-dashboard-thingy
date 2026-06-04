@@ -416,6 +416,9 @@ otherwise just the total.
 ```
 
 * Card padding: `12px` (`p-3`).
+* **Selection checkbox** — a small leading checkbox in the header row (before the
+  name), used for multi-select bulk actions. When the card is selected the
+  border brightens to `border-neutral-400` with a `ring-1 ring-neutral-500`.
 * Description: `line-clamp-2`. Never wraps further.
 * Badge row: flex-wrap, gap `6px`.
 * Metadata row: flex row, space-between, `label` scale. The left cluster is
@@ -476,7 +479,19 @@ headers are click-to-sort (numeric/recency columns default to descending, the
 rest ascending; re-clicking flips direction); the gear opens the same `CardMenu`
 as a card. Field-visibility toggles hide their columns too. The group-by
 selector has no meaning here, so it is muted and disabled. Empty result →
-"no repositories match". The view choice persists in localStorage.
+"no repositories match". The view choice persists in localStorage. List rows
+carry the same leading selection checkbox as cards.
+
+### Bulk actions
+
+Selecting one or more repos (the card/row checkbox) reveals the **`BulkBar`** — a
+`role="region"` strip above the board reading "N selected" with a `border-l`
+divider and buttons: **Checked now**, **Move to Today**, **Clear check**,
+**Ignore**, **Unignore**, an inline **tag input + Add tag**, and a right-aligned
+**Deselect**. Each action applies to the whole selection by looping the existing
+single-repo API calls, then clears the selection and refreshes. Selection is
+transient (not persisted) and is pruned automatically when a selected repo
+disappears after a sync.
 
 ## Elevation & depth
 

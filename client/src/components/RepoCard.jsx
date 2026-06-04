@@ -4,7 +4,7 @@ import { timeAgo } from '../lib/date.js';
 import { Badge } from './Badge.jsx';
 import { CardMenu } from './CardMenu.jsx';
 
-export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', schedulable = true, fields = {}, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
+export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', schedulable = true, fields = {}, selectedIds, onToggleSelect, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
   // Field visibility: a field shows unless explicitly toggled off.
   const show = (k) => fields[k] !== false;
   const SettingsIcon = ICON.settings;
@@ -14,6 +14,7 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
   const menuButtonRef = useRef(null);
   const ownerTint = showOwner && repo.owner ? ownerColor(repo.owner) : null;
   const compact = density === 'compact';
+  const selected = selectedIds ? selectedIds.has(repo.id) : false;
 
   const dueText = repo.needsCheckToday ? 'review today' : `review in ${repo.dueInDays} days`;
   const cardLabel = `${repo.name}${repo.owner ? `, ${repo.owner}` : ''} — ${dueText}`;
@@ -45,10 +46,23 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
         onDropOnCard(e, repo.id, column.daysAgoTarget);
       } : undefined}
       style={ownerTint ? { borderLeftColor: ownerTint, borderLeftWidth: 3 } : undefined}
-      className={cx('group relative rounded-lg border border-neutral-800 bg-neutral-900/70 hover:border-neutral-700', compact ? 'p-2' : 'p-3')}
+      className={cx(
+        'group relative rounded-lg border bg-neutral-900/70 hover:border-neutral-700',
+        selected ? 'border-neutral-400 ring-1 ring-neutral-500' : 'border-neutral-800',
+        compact ? 'p-2' : 'p-3'
+      )}
     >
       <div className={cx('flex items-start justify-between gap-2', schedulable && 'cursor-grab')}>
-        <div className="min-w-0">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(repo.id)}
+            aria-label={`Select ${repo.name}`}
+            className="mt-0.5 shrink-0 accent-neutral-400"
+          />
+        )}
+        <div className="min-w-0 flex-1">
           <a
             href={repo.html_url}
             target="_blank"

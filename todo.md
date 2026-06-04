@@ -97,7 +97,11 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 
 ### 7. Usability & polish
 
-* [ ] **(P1)** Multi-select cards → bulk ignore / tag / schedule.
+* [x] **(P1)** Multi-select cards → bulk actions — a selection checkbox on every
+  card and list row reveals a `BulkBar` (Checked now / Move to Today / Clear /
+  Ignore / Unignore / tag) that loops the existing single-repo endpoints over the
+  whole selection, then clears + refreshes. Selection is pruned when a repo
+  disappears after a sync.
 * [ ] **(P1)** Undo (toast with "undo") for destructive actions: delete notice,
   clear check, bulk ops.
 * [ ] **(P2)** Toast/notification system for action feedback.
