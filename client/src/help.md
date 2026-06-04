@@ -118,6 +118,10 @@ reloads; search, tag and priority are per-session queries.
 * **Density** — the **compact / comfortable** toggle. Compact tightens padding,
   clamps descriptions to one line, and hides the notice preview. Your choice is
   remembered.
+* **Sort** — the toolbar sort selector orders cards *within* each column:
+  **Manual** (your drag order), **Name**, **Recently pushed**, **Stars**, or
+  **Due soonest**. Also remembered. (Sorting by anything other than Manual
+  overrides the drag order for display; your saved positions are untouched.)
 
 ## Reports
 

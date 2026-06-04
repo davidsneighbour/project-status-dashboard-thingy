@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, BarChart3, CircleDot, CircleHelp, EyeOff, GitFork, RefreshCw, Rows2, Search, Settings2, Star, StickyNote, Tag, Trash2, User, X } from 'lucide-react';
+import { ArrowDownUp, Archive, BarChart3, CircleDot, CircleHelp, EyeOff, GitFork, RefreshCw, Rows2, Search, Settings2, Star, StickyNote, Tag, Trash2, User, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api.js';
 import { timeAgo, calendarLabel } from './lib/date.js';
-import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos, sortNotices, collectTags } from './lib/board.js';
+import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos, sortNotices, collectTags, SORT_KEYS } from './lib/board.js';
 import { useDialog } from './lib/useDialog.js';
 import helpMarkdown from './help.md?raw';
 import helpDiagramSvg from './help-diagram.svg?raw';
@@ -106,6 +106,16 @@ const ICON = {
   tag: Tag,
   reports: BarChart3,
   density: Rows2,
+  sort: ArrowDownUp,
+};
+
+// Labels for the within-column sort selector (keys come from board.js SORT_KEYS).
+const SORT_LABELS = {
+  manual: 'Manual order',
+  name: 'Name',
+  pushed: 'Recently pushed',
+  stars: 'Stars',
+  due: 'Due soonest',
 };
 
 const REPORT_LABELS = {
@@ -1132,6 +1142,7 @@ export default function App() {
   const NoticesIcon = ICON.notices;
   const ReportsIcon = ICON.reports;
   const DensityIcon = ICON.density;
+  const SortIcon = ICON.sort;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -1226,6 +1237,25 @@ export default function App() {
       }
       return next;
     });
+
+  // Within-column sort order (manual drag order by default), persisted.
+  const SORT_KEY = 'repo-triage-sort';
+  const [sortKey, setSortKey] = useState(() => {
+    try {
+      const v = localStorage.getItem(SORT_KEY);
+      return SORT_KEYS.includes(v) ? v : 'manual';
+    } catch {
+      return 'manual';
+    }
+  });
+  const changeSort = (next) => {
+    setSortKey(SORT_KEYS.includes(next) ? next : 'manual');
+    try {
+      localStorage.setItem(SORT_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -1351,8 +1381,8 @@ export default function App() {
   }, [data.defaultInactivityDays]);
 
   const groups = useMemo(() => {
-    return groupRepos(filtered, dayColumns);
-  }, [filtered, dayColumns]);
+    return groupRepos(filtered, dayColumns, sortKey);
+  }, [filtered, dayColumns, sortKey]);
 
   const ownerLabel = data.owners?.length
     ? data.owners.length <= 3
@@ -1510,6 +1540,25 @@ export default function App() {
             <DensityIcon className="h-3 w-3" aria-hidden="true" />
             compact
           </button>
+          <label className="flex items-center gap-1 text-[11px] text-neutral-600">
+            <span className="sr-only">Sort cards within columns</span>
+            <SortIcon className="h-3 w-3" aria-hidden="true" />
+            <select
+              value={sortKey}
+              onChange={(e) => changeSort(e.target.value)}
+              aria-label="Sort cards within columns"
+              className={cx(
+                'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500',
+                sortKey === 'manual'
+                  ? 'border-neutral-800 bg-transparent text-neutral-500'
+                  : 'border-neutral-600 bg-neutral-800 text-neutral-200'
+              )}
+            >
+              {SORT_KEYS.map((k) => (
+                <option key={k} value={k}>{SORT_LABELS[k]}</option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={toggleShowIgnored}
             aria-pressed={showIgnored}

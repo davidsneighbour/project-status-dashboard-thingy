@@ -444,11 +444,13 @@ Full-width bar below header:
 
 * Left: text filter input (fixed `256px` width)
 * Middle: filter pills (own / forks / archived) + conditional "show all" button
-* Right: a separate group, divided by a `border-l`, holding the global **show
-  ignored** toggle, the **tag filter**, the **priority filter**, a **Reports**
-  button, and a **Notices** button. These sit deliberately apart from the
-  inclusive filter pills: ignoring is an independent visibility axis, the tag
-  and priority filters are queries, and the Reports/Notices buttons open dialogs.
+* Right: a separate group, divided by a `border-l`, holding the **density**
+  toggle, the within-column **sort** selector (Manual/Name/Recently pushed/
+  Stars/Due soonest), the global **show ignored** toggle, the **tag filter**,
+  the **priority filter**, a **Reports** button, and a **Notices** button. These
+  sit deliberately apart from the inclusive filter pills: ignoring is an
+  independent visibility axis, the tag and priority filters are queries, sort and
+  density are view options, and the Reports/Notices buttons open dialogs.
 
 ## Elevation & depth
 

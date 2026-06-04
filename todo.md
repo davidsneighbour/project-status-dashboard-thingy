@@ -138,7 +138,9 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
   **language**; board re-columns accordingly.
 * [x] **(P1)** Card **density** toggle (compact/comfortable), persisted — compact
   uses `p-2`, `line-clamp-1` descriptions, and hides the notice preview.
-* [ ] **(P1)** Per-column sort (name, pushed, stars, due).
+* [x] **(P1)** Within-column sort selector (toolbar): Manual (drag order),
+  Name, Recently pushed, Stars, Due soonest — persisted to localStorage,
+  applied inside every column via `groupRepos(…, sortKey)`.
 * [ ] **(P1)** List/table view as an alternative to the board (sortable columns,
   good for bulk scanning and reports).
 * [ ] **(P2)** Field visibility toggles (stars, issues, language, pushed, notice

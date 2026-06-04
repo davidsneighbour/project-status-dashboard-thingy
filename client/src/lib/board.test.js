@@ -183,4 +183,29 @@ describe('groupRepos', () => {
         expect(grouped['day-1'].map((repo) => repo.id)).toEqual([2]);
         expect(grouped['day-2'].map((repo) => repo.id)).toEqual([3]);
     });
+
+    it('applies the chosen within-column sort order', () => {
+        const columns = [{ key: 'day-0' }];
+        const inCol = [
+            { id: 1, name: 'banana', column: 'day-0', position: 0, pushed_at: '2026-01-01T00:00:00.000Z', stargazers_count: 5, dueInDays: 3 },
+            { id: 2, name: 'apple', column: 'day-0', position: 1, pushed_at: '2026-06-01T00:00:00.000Z', stargazers_count: 1, dueInDays: 1 },
+            { id: 3, name: 'cherry', column: 'day-0', position: 2, pushed_at: '2026-03-01T00:00:00.000Z', stargazers_count: 9, dueInDays: 7 },
+        ];
+        const ids = (key) => groupRepos(inCol, columns, key)['day-0'].map((r) => r.id);
+
+        expect(ids('manual')).toEqual([1, 2, 3]); // by position
+        expect(ids('name')).toEqual([2, 1, 3]); // apple, banana, cherry
+        expect(ids('pushed')).toEqual([2, 3, 1]); // most recent first
+        expect(ids('stars')).toEqual([3, 1, 2]); // most stars first
+        expect(ids('due')).toEqual([2, 1, 3]); // soonest due first
+    });
+
+    it('falls back to manual order for an unknown sort key', () => {
+        const columns = [{ key: 'day-0' }];
+        const inCol = [
+            { id: 1, name: 'b', column: 'day-0', position: 1 },
+            { id: 2, name: 'a', column: 'day-0', position: 0 },
+        ];
+        expect(groupRepos(inCol, columns, 'bogus')['day-0'].map((r) => r.id)).toEqual([2, 1]);
+    });
 });

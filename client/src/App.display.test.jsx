@@ -62,3 +62,31 @@ describe('card repo stats', () => {
     expect(screen.queryByTitle(/open issues/)).not.toBeInTheDocument();
   });
 });
+
+describe('within-column sort', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it('reorders cards within a column by the selected sort and persists it', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    api.list.mockResolvedValue(payload([
+      card({ id: 1, name: 'banana', column: 'day-0', position: 0 }),
+      card({ id: 2, name: 'apple', column: 'day-0', position: 1 }),
+    ]));
+
+    render(<App />);
+    await screen.findByRole('link', { name: 'banana' });
+
+    // Default (manual) keeps position order: banana before apple.
+    let links = screen.getAllByRole('link').map((a) => a.textContent);
+    expect(links.indexOf('banana')).toBeLessThan(links.indexOf('apple'));
+
+    fireEvent.change(screen.getByLabelText('Sort cards within columns'), { target: { value: 'name' } });
+
+    links = screen.getAllByRole('link').map((a) => a.textContent);
+    expect(links.indexOf('apple')).toBeLessThan(links.indexOf('banana'));
+    expect(window.localStorage.getItem('repo-triage-sort')).toBe('name');
+  });
+});

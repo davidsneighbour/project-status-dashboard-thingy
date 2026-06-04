@@ -89,7 +89,21 @@ export function buildDayColumns(defaultInactivityDays, calendarLabelFn) {
     });
 }
 
-export function groupRepos(repos, dayColumns) {
+// Within-column ordering. `manual` is the drag order (saved positions); the
+// rest are read-only derived orders. Every sorter falls back to name so the
+// order is stable. `pushed`/`stars` are descending (most recent / most starred
+// first); `due` is ascending (soonest first).
+const pushedMs = (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0);
+export const SORT_KEYS = ['manual', 'name', 'pushed', 'stars', 'due'];
+const SORTERS = {
+    manual: (a, b) => a.position - b.position || a.name.localeCompare(b.name),
+    name: (a, b) => a.name.localeCompare(b.name),
+    pushed: (a, b) => pushedMs(b) - pushedMs(a) || a.name.localeCompare(b.name),
+    stars: (a, b) => (b.stargazers_count || 0) - (a.stargazers_count || 0) || a.name.localeCompare(b.name),
+    due: (a, b) => (a.dueInDays ?? Infinity) - (b.dueInDays ?? Infinity) || a.name.localeCompare(b.name),
+};
+
+export function groupRepos(repos, dayColumns, sortKey = 'manual') {
     const groups = Object.fromEntries(dayColumns.map((col) => [col.key, []]));
 
     for (const repo of repos) {
@@ -97,8 +111,9 @@ export function groupRepos(repos, dayColumns) {
         groups[key].push(repo);
     }
 
+    const cmp = SORTERS[sortKey] || SORTERS.manual;
     for (const key of Object.keys(groups)) {
-        groups[key].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+        groups[key].sort(cmp);
     }
 
     return groups;
