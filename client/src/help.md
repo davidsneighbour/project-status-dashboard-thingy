@@ -29,7 +29,8 @@ Each repository card shows, top to bottom:
   (when loading from several owners), `private`/`public`, `live`/`archived`,
   `fork`, the primary **language**, and `ignored` when hidden.
 * A **tags** row of `#tag` chips, always ending with a dashed **`＋ tag`** button.
-* A footer: when it was **pushed**, ⭐ **stars** and open **issues/PRs** counts,
+* A footer: when it was **pushed**, ⭐ **stars**, open **issues/PRs**, and
+  **forks** counts,
   and when you last **checked** it ("checked today", "checked 3d ago", or
   "not checked yet").
 

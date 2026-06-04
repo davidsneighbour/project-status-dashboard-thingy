@@ -114,7 +114,8 @@ React UI split into a container plus one-component-per-file:
 * `App.jsx`: the container — data loading/polling, all board state + persisted
   view prefs (filters, density, sort, group-by, fields), and the header/toolbar.
   Re-exports `ownerColor`/`tagColor`/`PRIORITY_*` for back-compat.
-* `components/`: `Column`, `RepoCard`, `CardMenu`, `Badge`, the dialogs
+* `components/`: `Column`, `RepoCard`, `CardMenu`, `Badge`, `ListView` (table
+  view), `BulkBar` (multi-select actions), `Toast` (undo), the dialogs
   (`HelpDialog`, `NoticesDialog`, `ReportsDialog`), and the toolbar menus
   (`TagFilter`, `PriorityFilter`, `FieldsMenu`).
 * `lib/constants.js`: shared UI constants/helpers (`cx`, `ACCENT`, `ICON`,
