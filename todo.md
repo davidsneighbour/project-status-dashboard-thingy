@@ -107,7 +107,11 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 
 ### 8. Quality & infra
 
-* [ ] **(P1)** Refresh `README.md` + reconcile with `DESIGN.md` and `AGENTS.md`.
+* [x] **(P1)** Reconciled `AGENTS.md` with reality (it claimed "no tests exist",
+  a single `repo_state` table, `effectiveState` in `index.js`, and App.jsx as the
+  "entire UI" — all now corrected: enforced Vitest suites, three tables,
+  `schedule.js`, the component split, `gh`-token fallback, `GITHUB_OWNERS`).
+  `README.md` was already current; markdown-lint + cspell clean.
 * [x] **(P2)** Split `App.jsx` into components (Column, RepoCard, CardMenu,
   Badge, dialogs, toolbar menus) — done; see Known gaps above.
 * [ ] **(P2)** E2E smoke test (Playwright): load → drag a card → add note → reload.
