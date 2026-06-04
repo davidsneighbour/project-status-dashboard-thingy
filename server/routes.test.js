@@ -56,6 +56,19 @@ describe('GET /api/repos', () => {
   });
 });
 
+describe('GET /api/health', () => {
+  it('reports a healthy, ready process', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      status: 'ok',
+      cacheReady: true,
+      repoCount: expect.any(Number),
+      uptimeSeconds: expect.any(Number),
+    }));
+  });
+});
+
 describe('POST /api/repos/:id/check', () => {
   it('rejects negative daysAgo with 400', async () => {
     const res = await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: -1 });

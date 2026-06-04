@@ -173,7 +173,8 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 
 * [ ] **(P1)** Refresh `README.md` + reconcile with `DESIGN.md` and `AGENTS.md`.
 * [ ] **(P1)** GitHub Actions CI: run `npm test` + markdown lint on PRs.
-* [ ] **(P2)** Health/version endpoint (`/api/health`) for Docker/monitoring.
+* [x] **(P2)** Health/version endpoint (`/api/health`) for Docker/monitoring —
+  returns status, cacheReady, syncing, repoCount, lastFetch/lastError, uptime.
 * [ ] **(P2)** Split `App.jsx` into components (Board, Column, Card, CardMenu,
   dialogs) once tag/report UI lands.
 * [ ] **(P2)** E2E smoke test (Playwright): load → drag a card → add note → reload.

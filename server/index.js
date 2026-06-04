@@ -176,6 +176,21 @@ const normalizeTag = (raw) => (typeof raw === 'string' ? raw.trim().toLowerCase(
 const findRepo = (id) => repoCache.find((r) => r.id === id);
 
 // ---- API -------------------------------------------------------------------
+// Lightweight liveness/readiness probe for Docker/monitoring. Always 200 once
+// the process is up; `cacheReady` distinguishes "booting" from "serving data".
+const STARTED_AT = Date.now();
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    cacheReady,
+    syncing,
+    repoCount: repoCache.length,
+    lastFetch,
+    lastError,
+    uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
+  });
+});
+
 app.get('/api/repos', (req, res) => {
   if (!cacheReady) {
     console.log('[/api/repos] cache not ready yet — GitHub fetch still in progress');

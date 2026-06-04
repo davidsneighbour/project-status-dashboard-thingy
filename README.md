@@ -199,6 +199,7 @@ Stack: Express 5 + better-sqlite3 (`server/`), React 19 + Vite 8 + Tailwind v4
 
 | Method | Route | Purpose |
 | --- | --- | --- |
+| GET | `/api/health` | Liveness/readiness probe (status, cacheReady, repoCount, uptime) |
 | GET | `/api/repos` | Board payload + sync/rate-limit/auth/owner status |
 | POST | `/api/refresh` | Queue a background GitHub refresh (non-blocking) |
 | POST | `/api/repos/:id/check` | `{ daysAgo }` set effective last-check age |

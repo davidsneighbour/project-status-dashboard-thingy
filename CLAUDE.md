@@ -121,6 +121,7 @@ Single-component React UI in `App.jsx`:
 
 | Method | Route | Purpose |
 | --- | --- | --- |
+| GET | `/api/health` | Liveness/readiness probe (status, cacheReady, repoCount, uptime) |
 | GET | `/api/repos` | Repos + computed columns + rate-limit snapshot |
 | POST | `/api/refresh` | Manual GitHub refresh |
 | POST | `/api/repos/:id/check` | Set effective check age via `{ daysAgo }` |
