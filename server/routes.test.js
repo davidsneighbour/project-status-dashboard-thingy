@@ -100,7 +100,7 @@ describe('checked_at reflects the real review time, not the scheduling anchor', 
   });
 
   it('does not fabricate a check when moving an untouched repo to Today', async () => {
-    await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: null });
+    await request(app).post(`/api/repos/${REPO.id}/clear`);
     await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 7 });
     const board = await request(app).get('/api/repos');
     const repo = board.body.repos.find((r) => r.id === REPO.id);
@@ -148,6 +148,29 @@ describe('POST /api/repos/:id/priority', () => {
   it('accepts null (clear)', async () => {
     const res = await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: null });
     expect(res.status).toBe(200);
+  });
+
+  it('persists the priority on the board payload and survives a check', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: 2 });
+    await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 3 });
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    // Scheduling a check must not clobber the user-assigned triage priority.
+    expect(repo.priority).toBe(2);
+  });
+});
+
+describe('POST /api/repos/:id/clear', () => {
+  it('resets the schedule but keeps the triage priority', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: 1 });
+    await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 3 });
+    const res = await request(app).post(`/api/repos/${REPO.id}/clear`);
+    expect(res.status).toBe(200);
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.column).toBe('day-0');
+    expect(repo.checkedAgeDays).toBeNull();
+    expect(repo.priority).toBe(1);
   });
 });
 

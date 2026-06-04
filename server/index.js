@@ -106,24 +106,35 @@ function buildPayload() {
 }
 
 // ---- Prepared statements ---------------------------------------------------
+// Triage priority is an independent axis (1=high, 2=medium, 3=low, null=none):
+// it touches ONLY the priority column and never the scheduling anchor or the
+// real review timestamp.
 const setPriorityStmt = db.prepare(`
-  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, checked_at, updated_at)
-  VALUES (@id, @full_name, @priority, @set_at, @checked_at, @now)
+  INSERT INTO repo_state (repo_id, full_name, priority, updated_at)
+  VALUES (@id, @full_name, @priority, @now)
   ON CONFLICT(repo_id) DO UPDATE SET
     priority = excluded.priority,
-    priority_set_at = excluded.priority_set_at,
-    checked_at = excluded.checked_at,
     updated_at = excluded.updated_at
 `);
+// Scheduling is independent of priority: a check sets the anchor (and, for a
+// real review, checked_at) but leaves any user-assigned priority untouched.
 const setCheckedStmt = db.prepare(`
-  INSERT INTO repo_state (repo_id, full_name, priority, priority_set_at, checked_at, updated_at)
-  VALUES (@id, @full_name, 1, @set_at, @checked_at, @now)
+  INSERT INTO repo_state (repo_id, full_name, priority_set_at, checked_at, updated_at)
+  VALUES (@id, @full_name, @set_at, @checked_at, @now)
   ON CONFLICT(repo_id) DO UPDATE SET
-    priority = 1,
     priority_set_at = excluded.priority_set_at,
     -- Only record a real review (checked_at = now) when this lands the card in a
     -- future column; a null means "make due" and must keep the prior checked_at.
     checked_at = COALESCE(excluded.checked_at, repo_state.checked_at),
+    updated_at = excluded.updated_at
+`);
+// "Clear check date" resets the scheduling axis only, leaving priority/tags/etc.
+const clearScheduleStmt = db.prepare(`
+  INSERT INTO repo_state (repo_id, full_name, priority_set_at, checked_at, updated_at)
+  VALUES (@id, @full_name, NULL, NULL, @now)
+  ON CONFLICT(repo_id) DO UPDATE SET
+    priority_set_at = NULL,
+    checked_at = NULL,
     updated_at = excluded.updated_at
 `);
 const getInactivityStmt = db.prepare('SELECT inactivity_days FROM repo_state WHERE repo_id = ?');
@@ -192,6 +203,8 @@ app.post('/api/refresh', (req, res) => {
   res.json({ ok: true, queued: started, syncing, cacheReady, lastFetch });
 });
 
+// Set the triage priority (1=high, 2=medium, 3=low, null=none). Independent of
+// scheduling — does not touch the check date.
 app.post('/api/repos/:id/priority', (req, res) => {
   const id = Number(req.params.id);
   const { priority } = req.body;
@@ -199,15 +212,16 @@ app.post('/api/repos/:id/priority', (req, res) => {
     return res.status(400).json({ error: 'priority must be 1, 2, 3 or null' });
   }
   const now = new Date().toISOString();
-  setPriorityStmt.run({
-    id,
-    full_name: findRepo(id)?.full_name ?? null,
-    priority,
-    set_at: priority === null ? null : now,
-    // Clearing the check date also clears the real review timestamp.
-    checked_at: priority === null ? null : now,
-    now,
-  });
+  setPriorityStmt.run({ id, full_name: findRepo(id)?.full_name ?? null, priority, now });
+  res.json({ ok: true });
+});
+
+// Clear the scheduling state (anchor + real review time) without touching the
+// triage priority. Backs the "Clear check date" action and the CLI `clear`.
+app.post('/api/repos/:id/clear', (req, res) => {
+  const id = Number(req.params.id);
+  const now = new Date().toISOString();
+  clearScheduleStmt.run({ id, full_name: findRepo(id)?.full_name ?? null, now });
   res.json({ ok: true });
 });
 
