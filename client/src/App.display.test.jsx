@@ -90,3 +90,42 @@ describe('within-column sort', () => {
     expect(window.localStorage.getItem('repo-triage-sort')).toBe('name');
   });
 });
+
+describe('board group-by', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+  });
+
+  it('re-columns the board by owner and persists the choice', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    api.list.mockResolvedValue(payload([
+      card({ id: 1, name: 'one', owner: 'me' }),
+      card({ id: 2, name: 'two', owner: 'dnbhq' }),
+    ]));
+
+    render(<App />);
+    await screen.findByRole('link', { name: 'one' });
+
+    fireEvent.change(screen.getByLabelText('Group board by'), { target: { value: 'owner' } });
+
+    // Owner columns appear as groups; both repos still render.
+    expect(screen.getByRole('group', { name: /me column/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /dnbhq column/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'one' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('repo-triage-group-by')).toBe('owner');
+  });
+
+  it('makes cards non-draggable in a grouped (read-only) view', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    api.list.mockResolvedValue(payload([card({ id: 1, name: 'one', owner: 'me', tags: ['infra'] })]));
+
+    render(<App />);
+    await screen.findByRole('link', { name: 'one' });
+
+    fireEvent.change(screen.getByLabelText('Group board by'), { target: { value: 'tag' } });
+
+    const cardGroup = screen.getByRole('group', { name: /^one/ });
+    expect(cardGroup).not.toHaveAttribute('draggable', 'true');
+  });
+});

@@ -134,8 +134,10 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 * [x] **(P0)** Show fetched-but-hidden data on cards: ⭐ stars and open-issue count
   (compact, muted; never as accent colour).
 * [x] **(P0)** "×" to clear a column's filter field (carried over idea).
-* [ ] **(P1)** Group-by selector: by **day** (current), **owner**, **tag**, or
-  **language**; board re-columns accordingly.
+* [x] **(P1)** Group-by selector: **day** (default, schedule board), **owner**,
+  **tag**, or **language**. Non-day views are read-only organisers (no drag/
+  keyboard scheduling); tag view fans repos out per tag. Persisted; within-column
+  sort applies to all groupings. Built on `groupReposBy()` + `schedulable` prop.
 * [x] **(P1)** Card **density** toggle (compact/comfortable), persisted — compact
   uses `p-2`, `line-clamp-1` descriptions, and hides the notice preview.
 * [x] **(P1)** Within-column sort selector (toolbar): Manual (drag order),

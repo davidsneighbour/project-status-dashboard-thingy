@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from './api.js';
 import { timeAgo, calendarLabel } from './lib/date.js';
-import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos, sortNotices, collectTags, SORT_KEYS } from './lib/board.js';
+import { defaultFilters, filterRepos, repoMatchesQuery, buildDayColumns, groupRepos, groupReposBy, sortNotices, collectTags, SORT_KEYS, GROUP_BY_KEYS } from './lib/board.js';
 import { useDialog } from './lib/useDialog.js';
 import helpMarkdown from './help.md?raw';
 import helpDiagramSvg from './help-diagram.svg?raw';
@@ -116,6 +116,14 @@ const SORT_LABELS = {
   pushed: 'Recently pushed',
   stars: 'Stars',
   due: 'Due soonest',
+};
+
+// Labels for the board group-by selector (keys come from board.js GROUP_BY_KEYS).
+const GROUP_BY_LABELS = {
+  day: 'Day schedule',
+  owner: 'Owner',
+  tag: 'Tag',
+  language: 'Language',
 };
 
 const REPORT_LABELS = {
@@ -605,7 +613,7 @@ function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged }) {
   );
 }
 
-function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
+function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', schedulable = true, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
   const SettingsIcon = ICON.settings;
   const StarIcon = ICON.star;
   const IssueIcon = ICON.issues;
@@ -618,9 +626,10 @@ function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = '
   const cardLabel = `${repo.name}${repo.owner ? `, ${repo.owner}` : ''} — ${dueText}`;
 
   // Keyboard alternative to drag: [ pulls a card toward Today, ] pushes it
-  // further out, one column at a time. Mirrors the drag target math.
+  // further out, one column at a time. Mirrors the drag target math. Only the
+  // day-schedule board is schedulable; other groupings are read-only views.
   const onCardKeyDown = (e) => {
-    if ((e.key !== '[' && e.key !== ']') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (!schedulable || (e.key !== '[' && e.key !== ']') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     e.preventDefault();
     const span = Math.max(1, handlers.defaultInactivity || 7);
     const cur = repo.boardOffset ?? 0;
@@ -630,23 +639,23 @@ function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = '
 
   return (
     <div
-      draggable
+      draggable={schedulable}
       role="group"
       aria-label={cardLabel}
-      aria-keyshortcuts="[ ]"
+      aria-keyshortcuts={schedulable ? '[ ]' : undefined}
       onKeyDown={onCardKeyDown}
-      onDragStart={(e) => onDragStartCard(e, repo.id)}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
+      onDragStart={schedulable ? (e) => onDragStartCard(e, repo.id) : undefined}
+      onDragOver={schedulable ? (e) => e.preventDefault() : undefined}
+      onDrop={schedulable ? (e) => {
         e.stopPropagation();
         e.preventDefault();
         onDropOnCard(e, repo.id, column.daysAgoTarget);
-      }}
+      } : undefined}
       style={ownerTint ? { borderLeftColor: ownerTint, borderLeftWidth: 3 } : undefined}
       className={cx('group relative rounded-lg border border-neutral-800 bg-neutral-900/70 hover:border-neutral-700', compact ? 'p-2' : 'p-3')}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 cursor-grab active:cursor-grabbing">
+      <div className={cx('flex items-start justify-between gap-2', schedulable && 'cursor-grab')}>
+        <div className="min-w-0">
           <a
             href={repo.html_url}
             target="_blank"
@@ -760,7 +769,7 @@ function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = '
   );
 }
 
-function Column({ col, repos, onDropColumn, ...cardProps }) {
+function Column({ col, repos, onDropColumn, schedulable = true, ...cardProps }) {
   const acc = ACCENT[col.accent];
   const ColSearchIcon = ICON.search;
   const [over, setOver] = useState(false);
@@ -805,11 +814,13 @@ function Column({ col, repos, onDropColumn, ...cardProps }) {
 
       <div
         onDragOver={(e) => {
+          if (!schedulable) return;
           e.preventDefault();
           setOver(true);
         }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => {
+          if (!schedulable) return;
           e.preventDefault();
           setOver(false);
           const id = Number(e.dataTransfer.getData('text/plain'));
@@ -821,10 +832,10 @@ function Column({ col, repos, onDropColumn, ...cardProps }) {
         )}
       >
         {visible.map((r) => (
-          <RepoCard key={r.id} repo={r} column={col} {...cardProps} />
+          <RepoCard key={r.id} repo={r} column={col} schedulable={schedulable} {...cardProps} />
         ))}
         {repos.length === 0 && (
-          <div className="grid flex-1 place-items-center text-center text-xs text-neutral-700">drag here</div>
+          <div className="grid flex-1 place-items-center text-center text-xs text-neutral-700">{schedulable ? 'drag here' : 'empty'}</div>
         )}
         {repos.length > 0 && visible.length === 0 && (
           <div className="grid flex-1 place-items-center text-center text-xs text-neutral-700">no matches</div>
@@ -1278,6 +1289,25 @@ export default function App() {
     }
   };
 
+  // Board grouping: the day schedule (default) or by owner/tag/language.
+  const GROUP_BY_STORAGE = 'repo-triage-group-by';
+  const [groupBy, setGroupBy] = useState(() => {
+    try {
+      const v = localStorage.getItem(GROUP_BY_STORAGE);
+      return GROUP_BY_KEYS.includes(v) ? v : 'day';
+    } catch {
+      return 'day';
+    }
+  });
+  const changeGroupBy = (next) => {
+    setGroupBy(GROUP_BY_KEYS.includes(next) ? next : 'day');
+    try {
+      localStorage.setItem(GROUP_BY_STORAGE, next);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const load = useCallback(async () => {
     try {
       const d = await api.list();
@@ -1404,6 +1434,11 @@ export default function App() {
   const groups = useMemo(() => {
     return groupRepos(filtered, dayColumns, sortKey);
   }, [filtered, dayColumns, sortKey]);
+
+  // Generic columns for the non-day groupings (owner/tag/language).
+  const groupedColumns = useMemo(() => {
+    return groupBy === 'day' ? null : groupReposBy(filtered, groupBy, sortKey);
+  }, [filtered, groupBy, sortKey]);
 
   const ownerLabel = data.owners?.length
     ? data.owners.length <= 3
@@ -1547,6 +1582,25 @@ export default function App() {
           )}
         </div>
         <div className="flex items-center gap-2 border-l border-neutral-800 pl-3">
+          <label className="flex items-center gap-1 text-[11px] text-neutral-600">
+            <span className="sr-only">Group board by</span>
+            <span aria-hidden="true" className="text-[10px] uppercase tracking-wider">group</span>
+            <select
+              value={groupBy}
+              onChange={(e) => changeGroupBy(e.target.value)}
+              aria-label="Group board by"
+              className={cx(
+                'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500',
+                groupBy === 'day'
+                  ? 'border-neutral-800 bg-transparent text-neutral-500'
+                  : 'border-neutral-600 bg-neutral-800 text-neutral-200'
+              )}
+            >
+              {GROUP_BY_KEYS.map((k) => (
+                <option key={k} value={k}>{GROUP_BY_LABELS[k]}</option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={toggleDensity}
             aria-pressed={density === 'compact'}
@@ -1652,18 +1706,34 @@ export default function App() {
           </div>
         ) : (
           <div role="group" aria-label="Repository board" aria-busy={data.syncing || undefined} className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-            {todayColumn && (
-              <div className="sticky left-0 z-10 flex bg-neutral-950/95 pr-2 backdrop-blur-xs">
-                <Column col={todayColumn} repos={groups[todayColumn.key] || []} onDropColumn={onDropColumn} {...cardProps} />
+            {groupBy === 'day' ? (
+              <>
+                {todayColumn && (
+                  <div className="sticky left-0 z-10 flex bg-neutral-950/95 pr-2 backdrop-blur-xs">
+                    <Column col={todayColumn} repos={groups[todayColumn.key] || []} onDropColumn={onDropColumn} {...cardProps} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-2">
+                  <div className="flex h-full min-w-max gap-4 pr-4">
+                    {futureColumns.map((col) => (
+                      <Column key={col.key} col={col} repos={groups[col.key] || []} onDropColumn={onDropColumn} {...cardProps} />
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-2">
+                <div className="flex h-full min-w-max gap-4 pr-4">
+                  {groupedColumns.length === 0 ? (
+                    <div className="grid flex-1 place-items-center text-center text-xs text-neutral-700">no repositories to group</div>
+                  ) : (
+                    groupedColumns.map((col) => (
+                      <Column key={col.key} col={col} repos={col.repos} schedulable={false} onDropColumn={() => {}} {...cardProps} />
+                    ))
+                  )}
+                </div>
               </div>
             )}
-            <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden pb-2">
-              <div className="flex h-full min-w-max gap-4 pr-4">
-                {futureColumns.map((col) => (
-                  <Column key={col.key} col={col} repos={groups[col.key] || []} onDropColumn={onDropColumn} {...cardProps} />
-                ))}
-              </div>
-            </div>
           </div>
         )}
       </main>

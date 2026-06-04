@@ -103,6 +103,53 @@ const SORTERS = {
     due: (a, b) => (a.dueInDays ?? Infinity) - (b.dueInDays ?? Infinity) || a.name.localeCompare(b.name),
 };
 
+// Alternative groupings to the day schedule. `day` keeps the schedule board;
+// the rest re-column the board by a repo attribute (read-only — no scheduling).
+export const GROUP_BY_KEYS = ['day', 'owner', 'tag', 'language'];
+
+// Build generic columns for a non-day grouping. Returns an ordered list of
+// { key, title, subtitle, accent, repos, schedulable:false }. Tags fan out (a
+// repo appears under each of its tags) plus an "untagged" bucket; owner and
+// language use one bucket each with a "none" fallback. Columns are ordered by
+// repo count (desc) then title, with the "none" bucket pinned last; within a
+// column the chosen sort applies.
+export function groupReposBy(repos, field, sortKey = 'manual') {
+    const NONE = '__none__';
+    const buckets = new Map();
+    const add = (key, title, repo) => {
+        if (!buckets.has(key)) buckets.set(key, { key, title, repos: [] });
+        buckets.get(key).repos.push(repo);
+    };
+
+    for (const r of repos) {
+        if (field === 'tag') {
+            const tags = r.tags || [];
+            if (tags.length === 0) add(NONE, 'untagged', r);
+            else for (const t of tags) add(`tag:${t}`, `#${t}`, r);
+        } else {
+            const v = (field === 'owner' ? r.owner : r.language) || null;
+            if (v) add(`${field}:${v}`, v, r);
+            else add(NONE, field === 'owner' ? 'no owner' : 'no language', r);
+        }
+    }
+
+    const cmp = SORTERS[sortKey] || SORTERS.manual;
+    const cols = [...buckets.values()];
+    for (const c of cols) {
+        c.repos.sort(cmp);
+        c.subtitle = `${c.repos.length} ${c.repos.length === 1 ? 'repo' : 'repos'}`;
+        c.accent = 'neutral';
+        c.schedulable = false;
+    }
+    cols.sort((a, b) => {
+        const an = a.key === NONE;
+        const bn = b.key === NONE;
+        if (an !== bn) return an ? 1 : -1;
+        return b.repos.length - a.repos.length || a.title.localeCompare(b.title);
+    });
+    return cols;
+}
+
 export function groupRepos(repos, dayColumns, sortKey = 'manual') {
     const groups = Object.fromEntries(dayColumns.map((col) => [col.key, []]));
 

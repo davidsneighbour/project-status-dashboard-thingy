@@ -116,6 +116,12 @@ reloads; search, tag and priority are per-session queries.
 
 ## Display options
 
+* **Group** — the toolbar **group** selector re-columns the board: **Day
+  schedule** (the default — drag-to-schedule board), or by **Owner**, **Tag**,
+  or **Language**. The non-day views are read-only organisers: cards aren't
+  draggable and `[`/`]` scheduling is off, but the card menu still works (set
+  priority, tags, check, etc.). Grouping by tag lists a repo under each of its
+  tags. Your choice is remembered.
 * **Density** — the **compact / comfortable** toggle. Compact tightens padding,
   clamps descriptions to one line, and hides the notice preview. Your choice is
   remembered.

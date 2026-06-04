@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDayColumns, collectTags, defaultFilters, filterRepos, groupRepos, matchesTagFilter, matchesPriorityFilter, repoMatchesQuery, sortNotices } from './board.js';
+import { buildDayColumns, collectTags, defaultFilters, filterRepos, groupRepos, groupReposBy, matchesTagFilter, matchesPriorityFilter, repoMatchesQuery, sortNotices } from './board.js';
 
 const repos = [
     { id: 1, name: 'own-live', description: 'alpha', language: 'JS', fork: false, archived: false, column: 'day-0', position: 2 },
@@ -207,5 +207,36 @@ describe('groupRepos', () => {
             { id: 2, name: 'a', column: 'day-0', position: 0 },
         ];
         expect(groupRepos(inCol, columns, 'bogus')['day-0'].map((r) => r.id)).toEqual([2, 1]);
+    });
+});
+
+describe('groupReposBy', () => {
+    const sample = [
+        { id: 1, name: 'a', owner: 'me', language: 'JS', tags: ['infra'], position: 0 },
+        { id: 2, name: 'b', owner: 'me', language: 'Go', tags: ['infra', 'oss'], position: 1 },
+        { id: 3, name: 'c', owner: 'dnbhq', language: null, tags: [], position: 2 },
+    ];
+
+    it('groups by owner with a "no owner" bucket pinned last', () => {
+        const cols = groupReposBy([...sample, { id: 4, name: 'd', owner: null, tags: [] }], 'owner');
+        expect(cols.map((c) => c.title)).toEqual(['me', 'dnbhq', 'no owner']);
+        expect(cols[0].repos.map((r) => r.id)).toEqual([1, 2]);
+        expect(cols.every((c) => c.schedulable === false)).toBe(true);
+    });
+
+    it('fans repos out across every tag, with an untagged bucket last', () => {
+        const cols = groupReposBy(sample, 'tag');
+        const byTitle = Object.fromEntries(cols.map((c) => [c.title, c.repos.map((r) => r.id)]));
+        expect(byTitle['#infra']).toEqual([1, 2]);
+        expect(byTitle['#oss']).toEqual([2]);
+        expect(byTitle.untagged).toEqual([3]);
+        expect(cols[cols.length - 1].title).toBe('untagged');
+    });
+
+    it('groups by language with a "no language" fallback', () => {
+        const cols = groupReposBy(sample, 'language');
+        expect(cols.map((c) => c.title)).toContain('no language');
+        const subtitle = cols.find((c) => c.title === 'JS').subtitle;
+        expect(subtitle).toBe('1 repo');
     });
 });
