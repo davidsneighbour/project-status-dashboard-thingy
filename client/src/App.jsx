@@ -1026,6 +1026,88 @@ function TagFilter({ available, value, onChange }) {
   );
 }
 
+// The four priority filter options: P1/P2/P3 plus "no priority" (level 0).
+const PRIORITY_FILTER_OPTIONS = [
+  ...PRIORITY_LEVELS.map((level) => ({ level, ...PRIORITY_META[level] })),
+  { level: 0, label: 'None', title: 'No priority', dot: '#52525b' },
+];
+
+function PriorityFilterPanel({ value, onChange, anchorRef, onClose }) {
+  const [pos, setPos] = useState(null);
+  const dialogRef = useDialog(onClose);
+
+  useEffect(() => {
+    const el = anchorRef?.current;
+    if (!el) return undefined;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      const width = 176;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+      setPos({ top: r.bottom + 4, left });
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [anchorRef]);
+
+  const toggle = (level) =>
+    onChange(value.includes(level) ? value.filter((l) => l !== level) : [...value, level]);
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-label="Filter by priority"
+        tabIndex={-1}
+        className="fixed z-20 w-44 rounded-lg border border-neutral-700 bg-neutral-900 p-2 shadow-2xl"
+        style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+      >
+        <div className="flex items-center justify-between px-1 pb-1">
+          <span className="text-[10px] uppercase tracking-widest text-neutral-500">Filter by priority</span>
+          {value.length > 0 && (
+            <button onClick={() => onChange([])} className="text-[10px] text-neutral-400 hover:text-neutral-200">
+              clear
+            </button>
+          )}
+        </div>
+        {PRIORITY_FILTER_OPTIONS.map(({ level, label, title, dot }) => (
+          <label key={level} title={title} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800">
+            <input type="checkbox" checked={value.includes(level)} onChange={() => toggle(level)} className="accent-neutral-500" />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: dot }} aria-hidden="true" />
+            <span className="flex-1 truncate">{label}</span>
+          </label>
+        ))}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+function PriorityFilter({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Filter by priority"
+        aria-expanded={open}
+        className={cx(
+          'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+          value.length ? 'border-neutral-600 bg-neutral-800 text-neutral-200' : 'border-neutral-800 bg-transparent text-neutral-600'
+        )}
+      >
+        <span className="text-[10px] font-bold tracking-tight" aria-hidden="true">!</span>
+        priority{value.length ? ` (${value.length})` : ''}
+      </button>
+      {open && <PriorityFilterPanel value={value} onChange={onChange} anchorRef={btnRef} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
 export default function App() {
   const SyncIcon = ICON.sync;
   const SearchIcon = ICON.search;
@@ -1049,6 +1131,8 @@ export default function App() {
   const [noticesScope, setNoticesScope] = useState(null);
   // Transient tag query: which tags to match and whether any/all.
   const [tagFilter, setTagFilter] = useState({ tags: [], mode: 'any' });
+  // Independent priority filter: a list of selected levels (1|2|3, 0 = none).
+  const [priorityFilter, setPriorityFilter] = useState([]);
   const [reportsOpen, setReportsOpen] = useState(false);
 
   // "Show ignored" is a global visibility switch, deliberately separate from
@@ -1222,8 +1306,8 @@ export default function App() {
   };
 
   const filtered = useMemo(() => {
-    return filterRepos(data.repos, q, filters, showIgnored, tagFilter);
-  }, [data.repos, q, filters, showIgnored, tagFilter]);
+    return filterRepos(data.repos, q, filters, showIgnored, tagFilter, priorityFilter);
+  }, [data.repos, q, filters, showIgnored, tagFilter, priorityFilter]);
 
   const availableTags = useMemo(() => collectTags(data.repos), [data.repos]);
 
@@ -1424,6 +1508,7 @@ export default function App() {
             show ignored
           </button>
           <TagFilter available={availableTags} value={tagFilter} onChange={setTagFilter} />
+          <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
           <button
             onClick={() => setReportsOpen(true)}
             className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"

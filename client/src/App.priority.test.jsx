@@ -58,6 +58,18 @@ describe('triage priority', () => {
     await waitFor(() => expect(api.setPriority).toHaveBeenCalledWith(3, 2));
   });
 
+  it('filters the board to the selected priority, independent of other axes', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by priority' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /P1/ }));
+
+    expect(screen.getByRole('link', { name: 'alpha' })).toBeInTheDocument(); // P1
+    expect(screen.queryByRole('link', { name: 'beta' })).not.toBeInTheDocument(); // P2
+    expect(screen.queryByRole('link', { name: 'gamma' })).not.toBeInTheDocument(); // none
+  });
+
   it('toggles a priority off when re-selecting the active level', async () => {
     render(<App />);
     await screen.findByRole('link', { name: 'alpha' });

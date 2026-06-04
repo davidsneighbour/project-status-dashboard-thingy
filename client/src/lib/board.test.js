@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDayColumns, collectTags, defaultFilters, filterRepos, groupRepos, matchesTagFilter, repoMatchesQuery, sortNotices } from './board.js';
+import { buildDayColumns, collectTags, defaultFilters, filterRepos, groupRepos, matchesTagFilter, matchesPriorityFilter, repoMatchesQuery, sortNotices } from './board.js';
 
 const repos = [
     { id: 1, name: 'own-live', description: 'alpha', language: 'JS', fork: false, archived: false, column: 'day-0', position: 2 },
@@ -35,6 +35,34 @@ describe('filterRepos', () => {
         expect(filterRepos(tagged, '', defaultFilters, false, { tags: ['oss'], mode: 'any' }).map((r) => r.id)).toEqual([11]);
         expect(filterRepos(tagged, '', defaultFilters, false, { tags: ['oss', 'infra'], mode: 'all' }).map((r) => r.id)).toEqual([11]);
         expect(filterRepos(tagged, '', defaultFilters, false, { tags: ['oss', 'infra'], mode: 'any' }).map((r) => r.id)).toEqual([10, 11]);
+    });
+
+    it('narrows by the priority filter, independent of other axes', () => {
+        const pri = [
+            { id: 20, name: 'p1', fork: false, archived: false, priority: 1 },
+            { id: 21, name: 'p2', fork: false, archived: false, priority: 2 },
+            { id: 22, name: 'none', fork: false, archived: false, priority: null },
+        ];
+        expect(filterRepos(pri, '', defaultFilters, false, null, [1, 2]).map((r) => r.id)).toEqual([20, 21]);
+        expect(filterRepos(pri, '', defaultFilters, false, null, [0]).map((r) => r.id)).toEqual([22]);
+        expect(filterRepos(pri, '', defaultFilters, false, null, []).map((r) => r.id)).toEqual([20, 21, 22]);
+    });
+});
+
+describe('matchesPriorityFilter', () => {
+    it('passes when nothing is selected', () => {
+        expect(matchesPriorityFilter({ priority: 1 }, [])).toBe(true);
+        expect(matchesPriorityFilter({ priority: null }, null)).toBe(true);
+    });
+
+    it('treats a null priority as level 0 ("none")', () => {
+        expect(matchesPriorityFilter({ priority: null }, [0])).toBe(true);
+        expect(matchesPriorityFilter({ priority: 2 }, [0])).toBe(false);
+    });
+
+    it('matches the selected levels', () => {
+        expect(matchesPriorityFilter({ priority: 2 }, [1, 2])).toBe(true);
+        expect(matchesPriorityFilter({ priority: 3 }, [1, 2])).toBe(false);
     });
 });
 

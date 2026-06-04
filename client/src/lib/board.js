@@ -19,6 +19,14 @@ export function matchesTagFilter(repo, selected, mode = 'any') {
         : selected.some((t) => tags.includes(t));
 }
 
+// Priority-filter predicate. `selected` is a list of levels (1|2|3, or 0 for
+// "no priority"). Empty = passes. An independent axis from the inclusive
+// own/forks/archived filters and the tag filter.
+export function matchesPriorityFilter(repo, selected) {
+    if (!selected || selected.length === 0) return true;
+    return selected.includes(repo.priority ?? 0);
+}
+
 // Distinct tags across repos with usage counts, sorted by count desc then name.
 export function collectTags(repos) {
     const counts = new Map();
@@ -33,11 +41,13 @@ export function collectTags(repos) {
 // `showIgnored` is an independent axis from the inclusive own/forks/archived
 // filters: ignored repos are dropped first, regardless of the other toggles,
 // unless the global "show ignored" switch is on. `tagFilter` ({ tags, mode })
-// further narrows to repos matching the selected tags.
-export function filterRepos(repos, query, filters, showIgnored = false, tagFilter = null) {
+// further narrows to repos matching the selected tags; `priorityFilter` (a list
+// of levels) narrows by triage priority, independent of every other axis.
+export function filterRepos(repos, query, filters, showIgnored = false, tagFilter = null, priorityFilter = null) {
     return repos.filter((repo) => {
         if (repo.ignored && !showIgnored) return false;
         if (tagFilter && !matchesTagFilter(repo, tagFilter.tags, tagFilter.mode)) return false;
+        if (!matchesPriorityFilter(repo, priorityFilter)) return false;
 
         const isOwn = !repo.fork && !repo.archived;
         const visible =
