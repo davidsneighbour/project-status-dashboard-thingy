@@ -1,9 +1,14 @@
 import { useState } from 'react';
+import { useIsMobile } from '../lib/useIsMobile.js';
+import { cx } from '../lib/constants.js';
 
 // Action bar shown while one or more repos are selected. Each action applies to
-// the whole selection (via App's bulkActions) and then clears it.
+// the whole selection (via App's bulkActions) and then clears it. On mobile it
+// pins to the bottom edge as a thumb-reachable action bar (see DESIGN.md →
+// Layout → Responsive / mobile).
 export function BulkBar({ count, actions, onClear }) {
   const [tag, setTag] = useState('');
+  const isMobile = useIsMobile();
 
   const submitTag = () => {
     const v = tag.trim();
@@ -19,7 +24,12 @@ export function BulkBar({ count, actions, onClear }) {
     <div
       role="region"
       aria-label="Bulk actions"
-      className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900/80 px-3 py-2"
+      className={cx(
+        'flex flex-wrap items-center gap-2 border border-neutral-700 bg-neutral-900/80 px-3 py-2',
+        isMobile
+          ? 'fixed inset-x-0 bottom-0 z-30 rounded-t-lg border-t'
+          : 'mb-3 rounded-lg'
+      )}
     >
       <span className="text-[11px] font-semibold text-neutral-200" aria-live="polite">
         {count} selected

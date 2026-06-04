@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useDialog } from '../lib/useDialog.js';
+import { useIsMobile } from '../lib/useIsMobile.js';
 import { cx, tagColor, PRIORITY_LEVELS, PRIORITY_META } from '../lib/constants.js';
 
 export function CardMenu({ repo, anchorRef, autoFocusTag = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetPriority, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onClose }) {
@@ -11,6 +12,9 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, defaultInactiv
   const [pos, setPos] = useState(null);
   const tagInputRef = useRef(null);
   const dialogRef = useDialog(onClose);
+  // On mobile the menu renders as a full-width bottom sheet rather than an
+  // anchored popover (see DESIGN.md → Mobile components → Bottom-sheet popovers).
+  const isMobile = useIsMobile();
 
   // When opened via the card's "+ tag" affordance, jump focus to the tag input
   // (overriding useDialog's default focus) so the user can type immediately.
@@ -27,8 +31,10 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, defaultInactiv
   };
 
   // Anchor the popover to the trigger via fixed positioning so the column's
-  // overflow-y-auto scroll area never clips it.
+  // overflow-y-auto scroll area never clips it. Skipped on mobile, where the
+  // menu is a bottom sheet pinned to the viewport edge instead.
   useEffect(() => {
+    if (isMobile) return undefined;
     const el = anchorRef?.current;
     if (!el) return undefined;
     const update = () => {
@@ -40,18 +46,23 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, defaultInactiv
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, [anchorRef]);
+  }, [anchorRef, isMobile]);
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div className={cx('fixed inset-0 z-10', isMobile && 'bg-black/50')} onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-label={`Settings for ${repo.name}`}
         tabIndex={-1}
-        className="fixed z-20 w-64 rounded-lg border border-neutral-700 bg-neutral-900 p-2 shadow-2xl"
-        style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+        className={cx(
+          'fixed z-20 border border-neutral-700 bg-neutral-900 p-2 shadow-2xl',
+          isMobile
+            ? 'inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-lg [&_button]:min-h-[44px]'
+            : 'w-64 rounded-lg'
+        )}
+        style={isMobile ? undefined : pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
       >
         <p className="px-1 pb-1 text-[10px] uppercase tracking-widest text-neutral-500">Review timing</p>
         <div className="grid grid-cols-2 gap-1">

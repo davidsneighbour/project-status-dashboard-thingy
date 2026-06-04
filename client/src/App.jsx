@@ -4,7 +4,10 @@ import { timeAgo, calendarLabel } from './lib/date.js';
 import { defaultFilters, filterRepos, buildDayColumns, groupRepos, groupReposBy, collectTags, SORT_KEYS, GROUP_BY_KEYS } from './lib/board.js';
 import { cx, ICON, SORT_LABELS, GROUP_BY_LABELS, DEFAULT_FIELDS } from './lib/constants.js';
 import { EMPTY_DATA, readBoardCache, writeBoardCache } from './lib/boardCache.js';
+import { useIsMobile } from './lib/useIsMobile.js';
 import { Column } from './components/Column.jsx';
+import { MobileBoard } from './components/MobileBoard.jsx';
+import { MobileActionSheet } from './components/MobileActionSheet.jsx';
 import { ListView } from './components/ListView.jsx';
 import { BulkBar } from './components/BulkBar.jsx';
 import { Toast } from './components/Toast.jsx';
@@ -28,6 +31,7 @@ export default function App() {
   const ReportsIcon = ICON.reports;
   const DensityIcon = ICON.density;
   const SortIcon = ICON.sort;
+  const MoreIcon = ICON.more;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -50,6 +54,8 @@ export default function App() {
   // Independent priority filter: a list of selected levels (1|2|3, 0 = none).
   const [priorityFilter, setPriorityFilter] = useState([]);
   const [reportsOpen, setReportsOpen] = useState(false);
+  // Mobile overflow: the collapsed toolbar controls live in a bottom action sheet.
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   // "Show ignored" is a global visibility switch, deliberately separate from
   // the own/forks/archived inclusive filters and persisted under its own key.
@@ -287,6 +293,16 @@ export default function App() {
   const onClearCheck = (id) => mutate(() => api.clearSchedule(id));
   const onSetPriority = (id, priority) => mutate(() => api.setPriority(id, priority));
   const onSetInactivity = (id, days) => mutate(() => api.setInactivity(id, days));
+  // "Mark done for N days" from the mobile move sheet. See issue #17: the final
+  // mapping is a one-off `snooze_until`; until that lands this approximates it
+  // with check-now + a per-repo review-interval override (option B), which
+  // resurfaces the repo in N days at the cost of (temporarily) changing its
+  // review cadence. The MoveSheet's UI contract — a single field — is unaffected.
+  const onSnooze = (id, days) =>
+    api
+      .setChecked(id, 0)
+      .then(() => api.setInactivity(id, days))
+      .then(load);
   const onSetIgnored = (id, ignored) => {
     const result = mutate(() => api.setIgnored(id, ignored));
     // Ignoring hides the repo — offer a one-click undo. (Unignoring needs none.)
@@ -426,6 +442,17 @@ export default function App() {
   const todayColumn = dayColumns[0];
   const futureColumns = dayColumns.slice(1);
 
+  // Below the mobile breakpoint the board collapses to a single column chosen
+  // from the DayPicker. Build one unified column list covering both the day
+  // schedule and the owner/tag/language groupings so MobileBoard is agnostic.
+  const isMobile = useIsMobile();
+  const mobileColumns = useMemo(() => {
+    if (groupBy === 'day') {
+      return dayColumns.map((col) => ({ ...col, repos: groups[col.key] || [], schedulable: true }));
+    }
+    return (groupedColumns || []).map((col) => ({ ...col, schedulable: false }));
+  }, [groupBy, dayColumns, groups, groupedColumns]);
+
   const cardProps = {
     menuOpenId: openMenuId,
     menuIntent,
@@ -439,6 +466,7 @@ export default function App() {
     onClearCheck,
     onSetPriority,
     onSetInactivity,
+    onSnooze,
     onSetIgnored,
     onAddNotice,
     onViewNotices,
@@ -449,6 +477,132 @@ export default function App() {
     allTags: availableTags.map((t) => t.tag),
     defaultInactivity: data.defaultInactivityDays,
   };
+
+  // The inclusive own/forks/archived filter pills. Rendered inline in the
+  // desktop toolbar, or inside the mobile action sheet (same controls).
+  const filterPills = (
+    <>
+      <span className="mr-1 text-[10px] uppercase tracking-widest text-neutral-600">show</span>
+      {[
+        { key: 'showOwn', label: 'own', icon: ICON.own },
+        { key: 'showForks', label: 'forks', icon: ICON.forks },
+        { key: 'showArchived', label: 'archived', icon: ICON.archived },
+      ].map(({ key, label, icon: FilterIcon }) => (
+        <label
+          key={key}
+          className={cx(
+            'flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors select-none',
+            filters[key] ? 'border-neutral-600 bg-neutral-800 text-neutral-200' : 'border-neutral-800 bg-transparent text-neutral-600'
+          )}
+        >
+          <input type="checkbox" checked={filters[key]} onChange={(e) => setFilter(key, e.target.checked)} className="sr-only" />
+          <FilterIcon className="h-3 w-3" aria-hidden="true" />
+          {label}
+        </label>
+      ))}
+      {!allShown && (
+        <button
+          onClick={showAll}
+          className="ml-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-400 hover:border-neutral-500 hover:text-neutral-200"
+        >
+          show all
+        </button>
+      )}
+    </>
+  );
+
+  // The view-option controls (view toggle, group-by, density, sort, fields,
+  // show-ignored, tag/priority filters, reports, notices). Same dual placement.
+  const optionControls = (
+    <>
+      <button
+        onClick={toggleView}
+        aria-pressed={view === 'list'}
+        title={view === 'list' ? 'List view (click for board)' : 'Board view (click for list)'}
+        className={cx(
+          'rounded-md border px-2 py-1 text-[11px] transition-colors',
+          view === 'list' ? 'border-neutral-600 bg-neutral-800 text-neutral-200' : 'border-neutral-800 bg-transparent text-neutral-600'
+        )}
+      >
+        {view === 'list' ? 'list' : 'board'}
+      </button>
+      <label className={cx('flex items-center gap-1 text-[11px] text-neutral-600', view === 'list' && 'opacity-40')}>
+        <span className="sr-only">Group board by</span>
+        <span aria-hidden="true" className="text-[10px] uppercase tracking-wider">group</span>
+        <select
+          value={groupBy}
+          onChange={(e) => changeGroupBy(e.target.value)}
+          disabled={view === 'list'}
+          aria-label="Group board by"
+          className={cx(
+            'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500 disabled:cursor-not-allowed',
+            groupBy === 'day' ? 'border-neutral-800 bg-transparent text-neutral-500' : 'border-neutral-600 bg-neutral-800 text-neutral-200'
+          )}
+        >
+          {GROUP_BY_KEYS.map((k) => (
+            <option key={k} value={k}>{GROUP_BY_LABELS[k]}</option>
+          ))}
+        </select>
+      </label>
+      <button
+        onClick={toggleDensity}
+        aria-pressed={density === 'compact'}
+        title={density === 'compact' ? 'Compact cards (click for comfortable)' : 'Comfortable cards (click for compact)'}
+        className={cx(
+          'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+          density === 'compact' ? 'border-neutral-600 bg-neutral-800 text-neutral-200' : 'border-neutral-800 bg-transparent text-neutral-600'
+        )}
+      >
+        <DensityIcon className="h-3 w-3" aria-hidden="true" />
+        compact
+      </button>
+      <label className="flex items-center gap-1 text-[11px] text-neutral-600">
+        <span className="sr-only">Sort cards within columns</span>
+        <SortIcon className="h-3 w-3" aria-hidden="true" />
+        <select
+          value={sortKey}
+          onChange={(e) => changeSort(e.target.value)}
+          aria-label="Sort cards within columns"
+          className={cx(
+            'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500',
+            sortKey === 'manual' ? 'border-neutral-800 bg-transparent text-neutral-500' : 'border-neutral-600 bg-neutral-800 text-neutral-200'
+          )}
+        >
+          {SORT_KEYS.map((k) => (
+            <option key={k} value={k}>{SORT_LABELS[k]}</option>
+          ))}
+        </select>
+      </label>
+      <FieldsMenu fields={fields} onToggle={toggleField} />
+      <button
+        onClick={toggleShowIgnored}
+        aria-pressed={showIgnored}
+        className={cx(
+          'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+          showIgnored ? 'border-neutral-600 bg-neutral-800 text-neutral-200' : 'border-neutral-800 bg-transparent text-neutral-600'
+        )}
+      >
+        <IgnoredIcon className="h-3 w-3" aria-hidden="true" />
+        show ignored
+      </button>
+      <TagFilter available={availableTags} value={tagFilter} onChange={setTagFilter} />
+      <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
+      <button
+        onClick={() => setReportsOpen(true)}
+        className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"
+      >
+        <ReportsIcon className="h-3 w-3" aria-hidden="true" />
+        reports
+      </button>
+      <button
+        onClick={() => setNoticesScope('all')}
+        className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"
+      >
+        <NoticesIcon className="h-3 w-3" aria-hidden="true" />
+        notices
+      </button>
+    </>
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -509,140 +663,32 @@ export default function App() {
             className="w-64 rounded-md border border-neutral-800 bg-neutral-950 pl-7 pr-3 py-1.5 text-xs text-neutral-100 outline-hidden focus:border-neutral-600"
           />
         </label>
-        <div className="flex items-center gap-1 border-l border-neutral-800 pl-3">
-          <span className="mr-1 text-[10px] uppercase tracking-widest text-neutral-600">show</span>
-          {[
-            { key: 'showOwn', label: 'own', icon: ICON.own },
-            { key: 'showForks', label: 'forks', icon: ICON.forks },
-            { key: 'showArchived', label: 'archived', icon: ICON.archived },
-          ].map(({ key, label, icon: FilterIcon }) => (
-            <label
-              key={key}
-              className={cx(
-                'flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors select-none',
-                filters[key]
-                  ? 'border-neutral-600 bg-neutral-800 text-neutral-200'
-                  : 'border-neutral-800 bg-transparent text-neutral-600'
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={filters[key]}
-                onChange={(e) => setFilter(key, e.target.checked)}
-                className="sr-only"
-              />
-              <FilterIcon className="h-3 w-3" aria-hidden="true" />
-              {label}
-            </label>
-          ))}
-          {!allShown && (
-            <button
-              onClick={showAll}
-              className="ml-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-400 hover:border-neutral-500 hover:text-neutral-200"
-            >
-              show all
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2 border-l border-neutral-800 pl-3">
+        {isMobile ? (
           <button
-            onClick={toggleView}
-            aria-pressed={view === 'list'}
-            title={view === 'list' ? 'List view (click for board)' : 'Board view (click for list)'}
-            className={cx(
-              'rounded-md border px-2 py-1 text-[11px] transition-colors',
-              view === 'list'
-                ? 'border-neutral-600 bg-neutral-800 text-neutral-200'
-                : 'border-neutral-800 bg-transparent text-neutral-600'
-            )}
+            onClick={() => setActionsOpen(true)}
+            aria-label="More filters and options"
+            aria-haspopup="dialog"
+            className="ml-auto flex min-h-[44px] items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 hover:bg-neutral-800"
           >
-            {view === 'list' ? 'list' : 'board'}
+            <MoreIcon className="h-4 w-4" aria-hidden="true" />
+            filters
           </button>
-          <label className={cx('flex items-center gap-1 text-[11px] text-neutral-600', view === 'list' && 'opacity-40')}>
-            <span className="sr-only">Group board by</span>
-            <span aria-hidden="true" className="text-[10px] uppercase tracking-wider">group</span>
-            <select
-              value={groupBy}
-              onChange={(e) => changeGroupBy(e.target.value)}
-              disabled={view === 'list'}
-              aria-label="Group board by"
-              className={cx(
-                'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500 disabled:cursor-not-allowed',
-                groupBy === 'day'
-                  ? 'border-neutral-800 bg-transparent text-neutral-500'
-                  : 'border-neutral-600 bg-neutral-800 text-neutral-200'
-              )}
-            >
-              {GROUP_BY_KEYS.map((k) => (
-                <option key={k} value={k}>{GROUP_BY_LABELS[k]}</option>
-              ))}
-            </select>
-          </label>
-          <button
-            onClick={toggleDensity}
-            aria-pressed={density === 'compact'}
-            title={density === 'compact' ? 'Compact cards (click for comfortable)' : 'Comfortable cards (click for compact)'}
-            className={cx(
-              'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
-              density === 'compact'
-                ? 'border-neutral-600 bg-neutral-800 text-neutral-200'
-                : 'border-neutral-800 bg-transparent text-neutral-600'
-            )}
-          >
-            <DensityIcon className="h-3 w-3" aria-hidden="true" />
-            compact
-          </button>
-          <label className="flex items-center gap-1 text-[11px] text-neutral-600">
-            <span className="sr-only">Sort cards within columns</span>
-            <SortIcon className="h-3 w-3" aria-hidden="true" />
-            <select
-              value={sortKey}
-              onChange={(e) => changeSort(e.target.value)}
-              aria-label="Sort cards within columns"
-              className={cx(
-                'rounded-md border px-1.5 py-1 text-[11px] outline-hidden transition-colors focus:border-neutral-500',
-                sortKey === 'manual'
-                  ? 'border-neutral-800 bg-transparent text-neutral-500'
-                  : 'border-neutral-600 bg-neutral-800 text-neutral-200'
-              )}
-            >
-              {SORT_KEYS.map((k) => (
-                <option key={k} value={k}>{SORT_LABELS[k]}</option>
-              ))}
-            </select>
-          </label>
-          <FieldsMenu fields={fields} onToggle={toggleField} />
-          <button
-            onClick={toggleShowIgnored}
-            aria-pressed={showIgnored}
-            className={cx(
-              'flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
-              showIgnored
-                ? 'border-neutral-600 bg-neutral-800 text-neutral-200'
-                : 'border-neutral-800 bg-transparent text-neutral-600'
-            )}
-          >
-            <IgnoredIcon className="h-3 w-3" aria-hidden="true" />
-            show ignored
-          </button>
-          <TagFilter available={availableTags} value={tagFilter} onChange={setTagFilter} />
-          <PriorityFilter value={priorityFilter} onChange={setPriorityFilter} />
-          <button
-            onClick={() => setReportsOpen(true)}
-            className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"
-          >
-            <ReportsIcon className="h-3 w-3" aria-hidden="true" />
-            reports
-          </button>
-          <button
-            onClick={() => setNoticesScope('all')}
-            className="flex items-center gap-1 rounded-md border border-neutral-700 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-800"
-          >
-            <NoticesIcon className="h-3 w-3" aria-hidden="true" />
-            notices
-          </button>
-        </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1 border-l border-neutral-800 pl-3">{filterPills}</div>
+            <div className="flex items-center gap-2 border-l border-neutral-800 pl-3">{optionControls}</div>
+          </>
+        )}
       </div>
+
+      {isMobile && actionsOpen && (
+        <MobileActionSheet title="Filters & options" onClose={() => setActionsOpen(false)}>
+          {/* Bump relocated controls to the ≥44px mobile touch target (DESIGN.md
+              → Touch targets) without altering the shared desktop fragments. */}
+          <div className="flex flex-wrap items-center gap-2 [&_button]:min-h-[44px] [&_label]:min-h-[44px] [&_select]:min-h-[44px]">{filterPills}</div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-3 [&_button]:min-h-[44px] [&_label]:min-h-[44px] [&_select]:min-h-[44px]">{optionControls}</div>
+        </MobileActionSheet>
+      )}
 
       <main className="flex flex-1 flex-col overflow-hidden p-5">
         {data.rateLimit?.authInvalid && (
@@ -685,6 +731,10 @@ export default function App() {
           </div>
         ) : view === 'list' ? (
           <ListView repos={filtered} {...cardProps} />
+        ) : isMobile ? (
+          <div role="group" aria-label="Repository board" aria-busy={data.syncing || undefined} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <MobileBoard columns={mobileColumns} onDropColumn={onDropColumn} {...cardProps} />
+          </div>
         ) : (
           <div role="group" aria-label="Repository board" aria-busy={data.syncing || undefined} className="flex min-h-0 flex-1 gap-4 overflow-hidden">
             {groupBy === 'day' ? (

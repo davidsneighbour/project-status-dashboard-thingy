@@ -4,7 +4,7 @@ import { cx, ACCENT, ICON } from '../lib/constants.js';
 import { repoMatchesQuery } from '../lib/board.js';
 import { RepoCard } from './RepoCard.jsx';
 
-export function Column({ col, repos, onDropColumn, schedulable = true, ...cardProps }) {
+export function Column({ col, repos, onDropColumn, schedulable = true, mobile = false, ...cardProps }) {
   const acc = ACCENT[col.accent];
   const ColSearchIcon = ICON.search;
   const [over, setOver] = useState(false);
@@ -14,7 +14,7 @@ export function Column({ col, repos, onDropColumn, schedulable = true, ...cardPr
   const filtering = cq.trim() !== '';
 
   return (
-    <div role="group" aria-label={`${col.title} column, ${repos.length} repositories`} className="flex h-full w-72 shrink-0 flex-col">
+    <div role="group" aria-label={`${col.title} column, ${repos.length} repositories`} className={cx('flex h-full flex-col', mobile ? 'w-full' : 'w-72 shrink-0')}>
       <div className={cx('mb-2 flex items-center justify-between rounded-lg border bg-neutral-900/40 px-3 py-2', acc.edge)}>
         <div className="flex min-w-0 items-center gap-2">
           <span className={cx('h-2 w-2 shrink-0 rounded-full', acc.dot)} />
@@ -67,7 +67,7 @@ export function Column({ col, repos, onDropColumn, schedulable = true, ...cardPr
         )}
       >
         {visible.map((r) => (
-          <RepoCard key={r.id} repo={r} column={col} schedulable={schedulable} {...cardProps} />
+          <RepoCard key={r.id} repo={r} column={col} schedulable={schedulable} mobile={mobile} {...cardProps} />
         ))}
         {repos.length === 0 && (
           <div className="grid flex-1 place-items-center text-center text-xs text-neutral-700">{schedulable ? 'drag here' : 'empty'}</div>

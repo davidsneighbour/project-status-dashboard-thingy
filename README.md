@@ -22,6 +22,10 @@ age (`DEFAULT_INACTIVITY_DAYS`), it returns to **Today** automatically.
 * Auto-sync with GitHub on startup and/or interval (background, non-blocking)
 * Live GitHub API rate-limit status and token validity feedback
 * Accessible: focus-trapped dialogs, ARIA roles, live region, reduced-motion
+* **Mobile layout** (below 640px): a single full-width day column with a
+  calendar **day picker**, **long-press to reschedule** (a "mark done for N
+  days" sheet), and the toolbar/menus collapsed into thumb-reachable bottom
+  sheets — every desktop feature stays reachable
 * SQLite persistence for triage state only (repo catalog is always from GitHub)
 
 ## Quick start

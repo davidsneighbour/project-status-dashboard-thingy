@@ -504,6 +504,48 @@ close. One toast at a time. (Clear-check and notice-deletion are not offered an
 undo yet: faithfully restoring them needs server-side state, so they show no
 lossy "undo".)
 
+### Responsive / mobile
+
+The board described above is the **desktop** layout. Below a single breakpoint —
+`max-width: 640px` (the Tailwind `sm` boundary) — the app switches to a
+**mobile** layout. There is no intermediate tablet tier; one breakpoint, two
+layouts. The switch is driven by a `matchMedia` hook (`lib/useIsMobile.js`), and
+only **presentation** branches on it — data loading, filtering, grouping,
+sorting, mutations, and persisted view prefs are shared with desktop. The mobile
+layout is a **layout adaptation only**: it inherits the entire visual language
+(dark-only, IBM Plex Mono, the rose/amber/sky urgency accents, owner/tag/priority
+palettes, `tabular-nums`, `prefers-reduced-motion`) unchanged. It introduces no
+new colours and no new typography.
+
+What changes on mobile:
+
+* **Single-column board.** Instead of the sticky-Today + horizontally scrolling
+  fixed-`288px` columns, exactly **one full-width day column** is shown at a
+  time. This is the one place column width is responsive (full viewport width
+  rather than `288px`) — see the carve-out in Do's and don'ts.
+* **Day selection via the day picker.** The visible day (Today, Tomorrow, … or,
+  under owner/tag/language grouping, the bucket) is chosen from a dropdown opened
+  by a **calendar-icon button** (`DayPicker`). The picker lists every column with
+  its title, subtitle, and repo count.
+* **Long-press to reschedule.** Pointer drag-and-drop is replaced by a
+  **long-press** on a card opening the **move sheet** (`MoveSheet`); the `[`/`]`
+  keyboard shortcuts still work with an attached keyboard.
+* **Collapsed toolbar.** The dense desktop toolbar collapses to a few inline
+  controls (search, sync, day picker) plus an overflow **action sheet** holding
+  the rest (view toggle, group-by, sort, density, fields, the inclusive filters,
+  show-ignored, tag/priority filters, reports, notices, help).
+* **Bottom sheets.** Transient surfaces that are anchored popovers on desktop —
+  `CardMenu`, `TagFilter`, `PriorityFilter` — render as full-width **bottom
+  sheets** (slide-up) on mobile so their controls are thumb-reachable and never
+  clipped. Same actions, same handlers; only the container and position change.
+* **Touch targets.** Interactive controls are **≥ 44×44px** on mobile. The
+  desktop `text-[11px]` pills are fine for a pointer but too small for a thumb;
+  mobile variants pad up to the minimum target. This is the only genuinely new
+  *visual* rule the mobile layout adds.
+
+Every desktop feature must remain reachable on mobile through one of the
+affordances above — feature parity is a hard requirement, not best-effort.
+
 ## Elevation & depth
 
 Depth is communicated primarily through:
@@ -784,6 +826,51 @@ Inline in the header: `API {remaining}/{limit}`. Text colour transitions:
 
 Hovering reveals a tooltip with used/limit/reset-time detail.
 
+### Mobile components
+
+These render **only** below the mobile breakpoint (see Layout → Responsive /
+mobile). They reuse existing handlers and carry no new colours.
+
+#### Day picker (`DayPicker`)
+
+A **calendar-icon button** in the mobile header showing the active day's short
+title. Tapping it opens a dropdown/sheet listing every board column — day
+columns (Today, Tomorrow, …) or, under owner/tag/language grouping, the buckets
+— each as a row with the column title, subtitle, and a right-aligned repo-count
+chip (`rounded.full`, `bg-neutral-800`, `label` scale — same chip as the column
+header). The active row is marked with the column's accent dot. Selecting a row
+sets the visible column and closes the picker. Neutral chrome throughout; the
+only colour is the per-column accent dot, exactly as in the column header.
+
+#### Move sheet (`MoveSheet`)
+
+The long-press target for rescheduling a card — a bottom sheet titled with the
+repo name. Its control is a **single numeric field**: "mark done for **N**
+days" (optionally with a small row of quick-pick presets that fill the field).
+One number expresses both "move to a day" and "snooze for N days". Submitting
+applies the schedule via the shared handler; cancel closes without mutating. The
+precise backend mapping (one-off snooze vs. review-interval override) is tracked
+outside this document — the sheet's **UI contract is the single field**. Uses
+`input`/`button-primary` tokens at mobile touch-target size.
+
+#### Mobile toolbar & action sheet
+
+The header keeps only **search**, **sync**, and the **day picker** inline. A
+single overflow trigger (`···`) opens a bottom **action sheet** containing the
+remaining toolbar controls (board/list toggle, group-by, sort, density, fields,
+the own/forks/archived inclusive filters + show-all, show-ignored, tag filter,
+priority filter, reports, notices, help). Controls keep their desktop semantics
+and active/inactive styling (filter-pill pattern) but are laid out as full-width
+rows at ≥ 44px height. No new control types — only relocation and resizing.
+
+#### Bottom-sheet popovers
+
+`CardMenu`, `TagFilter`, and `PriorityFilter` keep their desktop popover content
+verbatim but render as full-width slide-up **bottom sheets** on mobile (anchored
+to the bottom edge, backdrop scrim closes — same scrim pattern as the desktop
+popovers). The `useDialog` focus-trap/Escape contract still applies. Action
+groups, dividers, and tokens are unchanged from their desktop specs above.
+
 ## Do's and don'ts
 
 ### Do
@@ -816,8 +903,10 @@ Hovering reveals a tooltip with used/limit/reset-time detail.
 * **Don't** construct Tailwind class names dynamically (e.g. `` `text-${color}-500` ``).
   All class strings must be statically scannable.
 * **Don't** use `text-transform: uppercase` outside of `micro` scale labels.
-* **Don't** make column widths fluid or responsive. The board is a horizontal
-  scroll layout; columns are always `288px`.
+* **Don't** make column widths fluid or responsive **on desktop**. The desktop
+  board is a horizontal scroll layout; columns are always `288px`. (Below the
+  mobile breakpoint the board switches to a single full-width column — see
+  Layout → Responsive / mobile. That is the sole exception and is layout-only.)
 * **Don't** add new interactive elements to the card surface itself (other than
   the drag handle, repo link, and `···` button). Keep card interactions in the
   `CardMenu` popover.

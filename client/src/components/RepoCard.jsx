@@ -1,10 +1,15 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { cx, ICON, ownerColor, tagColor, PRIORITY_META } from '../lib/constants.js';
 import { timeAgo } from '../lib/date.js';
 import { Badge } from './Badge.jsx';
 import { CardMenu } from './CardMenu.jsx';
+import { MoveSheet } from './MoveSheet.jsx';
 
-export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', schedulable = true, fields = {}, selectedIds, onToggleSelect, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
+// Long-press tuning for the mobile move gesture.
+const LONG_PRESS_MS = 450;
+const MOVE_THRESHOLD_PX = 10;
+
+export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', schedulable = true, mobile = false, fields = {}, selectedIds, onToggleSelect, onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
   // Field visibility: a field shows unless explicitly toggled off.
   const show = (k) => fields[k] !== false;
   const SettingsIcon = ICON.settings;
@@ -16,6 +21,63 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
   const ownerTint = showOwner && repo.owner ? ownerColor(repo.owner) : null;
   const compact = density === 'compact';
   const selected = selectedIds ? selectedIds.has(repo.id) : false;
+
+  // Mobile-only long-press → move sheet. Additive to (not a replacement for)
+  // the desktop drag/`[`/`]` paths, which stay untouched. A long press on the
+  // card body (≥ LONG_PRESS_MS without moving past the threshold) opens the
+  // MoveSheet; a plain tap still follows the repo link.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const pressTimer = useRef(null);
+  const pressStart = useRef(null);
+  const longPressed = useRef(false);
+  const longPressEnabled = mobile && schedulable;
+
+  const clearPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+    pressStart.current = null;
+  };
+
+  const onPointerDown = (e) => {
+    if (!longPressEnabled) return;
+    // Don't hijack a press that starts on an interactive control (link, gear,
+    // checkbox, tag button) — those have their own tap behaviour.
+    if (e.target.closest('a,button,input,textarea,select')) return;
+    longPressed.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      setMoveOpen(true);
+      pressTimer.current = null;
+    }, LONG_PRESS_MS);
+  };
+
+  const onPointerMove = (e) => {
+    if (!pressStart.current) return;
+    const dx = Math.abs(e.clientX - pressStart.current.x);
+    const dy = Math.abs(e.clientY - pressStart.current.y);
+    if (dx > MOVE_THRESHOLD_PX || dy > MOVE_THRESHOLD_PX) clearPress();
+  };
+
+  const onClickCapture = (e) => {
+    // A long-press just opened the move sheet; swallow the click it would
+    // otherwise become so the repo link doesn't also fire. Guard on DOM
+    // containment: React portals (the move sheet) bubble through the React tree,
+    // so without this the sheet's own buttons would be swallowed too.
+    if (longPressed.current && e.currentTarget.contains(e.target)) {
+      e.preventDefault();
+      e.stopPropagation();
+      longPressed.current = false;
+    }
+  };
+
+  const onContextMenu = (e) => {
+    // Suppress the native long-press context menu so it doesn't fight the move
+    // gesture on touch.
+    if (longPressEnabled) e.preventDefault();
+  };
 
   const dueText = repo.needsCheckToday ? 'review today' : `review in ${repo.dueInDays} days`;
   const cardLabel = `${repo.name}${repo.owner ? `, ${repo.owner}` : ''} — ${dueText}`;
@@ -39,6 +101,13 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
       aria-label={cardLabel}
       aria-keyshortcuts={schedulable ? '[ ]' : undefined}
       onKeyDown={onCardKeyDown}
+      onPointerDown={longPressEnabled ? onPointerDown : undefined}
+      onPointerMove={longPressEnabled ? onPointerMove : undefined}
+      onPointerUp={longPressEnabled ? clearPress : undefined}
+      onPointerCancel={longPressEnabled ? clearPress : undefined}
+      onPointerLeave={longPressEnabled ? clearPress : undefined}
+      onClickCapture={longPressEnabled ? onClickCapture : undefined}
+      onContextMenu={longPressEnabled ? onContextMenu : undefined}
       onDragStart={schedulable ? (e) => onDragStartCard(e, repo.id) : undefined}
       onDragOver={schedulable ? (e) => e.preventDefault() : undefined}
       onDrop={schedulable ? (e) => {
@@ -50,7 +119,8 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
       className={cx(
         'group relative rounded-lg border bg-neutral-900/70 hover:border-neutral-700',
         selected ? 'border-neutral-400 ring-1 ring-neutral-500' : 'border-neutral-800',
-        compact ? 'p-2' : 'p-3'
+        compact ? 'p-2' : 'p-3',
+        longPressEnabled && 'select-none'
       )}
     >
       <div className={cx('flex items-start justify-between gap-2', schedulable && 'cursor-grab')}>
@@ -178,6 +248,18 @@ export function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, dens
 
       {menuOpenId === repo.id && (
         <CardMenu repo={repo} anchorRef={menuButtonRef} autoFocusTag={menuIntent === 'tag'} onClose={() => onToggleMenu(repo.id)} {...handlers} />
+      )}
+
+      {longPressEnabled && moveOpen && (
+        <MoveSheet
+          repo={repo}
+          defaultInactivity={handlers.defaultInactivity}
+          onApply={handlers.onSnooze}
+          onClose={() => {
+            setMoveOpen(false);
+            longPressed.current = false;
+          }}
+        />
       )}
     </div>
   );

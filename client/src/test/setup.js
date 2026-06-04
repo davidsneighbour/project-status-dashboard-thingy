@@ -1,9 +1,13 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
+import { resetViewport } from './viewport.js';
 
 afterEach(() => {
     cleanup();
+    // Restore the default (desktop) viewport between tests so a mobile test
+    // can't leak its breakpoint into the next one.
+    resetViewport();
 });
 
 function createMemoryStorage() {

@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialog } from '../lib/useDialog.js';
+import { useIsMobile } from '../lib/useIsMobile.js';
 import { cx, PRIORITY_FILTER_OPTIONS } from '../lib/constants.js';
 
 function PriorityFilterPanel({ value, onChange, anchorRef, onClose }) {
   const [pos, setPos] = useState(null);
   const dialogRef = useDialog(onClose);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
+    if (isMobile) return undefined;
     const el = anchorRef?.current;
     if (!el) return undefined;
     const update = () => {
@@ -19,21 +22,24 @@ function PriorityFilterPanel({ value, onChange, anchorRef, onClose }) {
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
-  }, [anchorRef]);
+  }, [anchorRef, isMobile]);
 
   const toggle = (level) =>
     onChange(value.includes(level) ? value.filter((l) => l !== level) : [...value, level]);
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-10" onClick={onClose} />
+      <div className={cx('fixed inset-0 z-10', isMobile && 'bg-black/50')} onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"
         aria-label="Filter by priority"
         tabIndex={-1}
-        className="fixed z-20 w-44 rounded-lg border border-neutral-700 bg-neutral-900 p-2 shadow-2xl"
-        style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+        className={cx(
+          'fixed z-20 border border-neutral-700 bg-neutral-900 p-2 shadow-2xl',
+          isMobile ? 'inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-lg' : 'w-44 rounded-lg'
+        )}
+        style={isMobile ? undefined : pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
       >
         <div className="flex items-center justify-between px-1 pb-1">
           <span className="text-[10px] uppercase tracking-widest text-neutral-500">Filter by priority</span>
