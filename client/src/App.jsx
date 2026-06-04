@@ -121,12 +121,19 @@ function Badge({ tone = 'neutral', children }) {
   return <span className={cx('rounded-sm px-1.5 py-0.5 text-[10px] font-medium', tones[tone])}>{children}</span>;
 }
 
-function CardMenu({ repo, anchorRef, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onClose }) {
+function CardMenu({ repo, anchorRef, autoFocusTag = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onClose }) {
   const [days, setDays] = useState(repo.inactivity_days ?? '');
   const [notice, setNotice] = useState('');
   const [tag, setTag] = useState('');
   const [pos, setPos] = useState(null);
+  const tagInputRef = useRef(null);
   const dialogRef = useDialog(onClose);
+
+  // When opened via the card's "+ tag" affordance, jump focus to the tag input
+  // (overriding useDialog's default focus) so the user can type immediately.
+  useEffect(() => {
+    if (autoFocusTag && tagInputRef.current) tagInputRef.current.focus();
+  }, [autoFocusTag]);
 
   const submitTag = () => {
     const v = tag.trim();
@@ -235,6 +242,7 @@ function CardMenu({ repo, anchorRef, defaultInactivity, allTags = [], onSetCheck
           )}
           <div className="mt-1 flex items-center gap-1">
             <input
+              ref={tagInputRef}
               list="card-tag-suggestions"
               value={tag}
               onChange={(e) => setTag(e.target.value)}
@@ -505,10 +513,11 @@ function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged }) {
   );
 }
 
-function RepoCard({ repo, column, menuOpenId, showOwner, density = 'comfortable', onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
+function RepoCard({ repo, column, menuOpenId, menuIntent, showOwner, density = 'comfortable', onToggleMenu, onDragStartCard, onDropOnCard, ...handlers }) {
   const SettingsIcon = ICON.settings;
   const StarIcon = ICON.star;
   const IssueIcon = ICON.issues;
+  const TagIcon = ICON.tag;
   const menuButtonRef = useRef(null);
   const ownerTint = showOwner && repo.owner ? ownerColor(repo.owner) : null;
   const compact = density === 'compact';
@@ -583,19 +592,25 @@ function RepoCard({ repo, column, menuOpenId, showOwner, density = 'comfortable'
         {repo.ignored && <Badge tone="neutral">ignored</Badge>}
       </div>
 
-      {repo.tags?.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          {repo.tags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-300"
-            >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tagColor(tag) }} aria-hidden="true" />
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        {repo.tags?.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-medium text-neutral-300"
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tagColor(tag) }} aria-hidden="true" />
+            #{tag}
+          </span>
+        ))}
+        <button
+          onClick={() => onToggleMenu(repo.id, 'tag')}
+          className="inline-flex items-center gap-0.5 rounded-sm border border-dashed border-neutral-700 px-1.5 py-0.5 text-[10px] text-neutral-500 hover:border-neutral-600 hover:text-neutral-300"
+          aria-label={`Add tag to ${repo.name}`}
+        >
+          <TagIcon className="h-2.5 w-2.5" aria-hidden="true" />
+          tag
+        </button>
+      </div>
 
       <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-neutral-500">
         <span className="flex min-w-0 items-center gap-2">
@@ -637,7 +652,9 @@ function RepoCard({ repo, column, menuOpenId, showOwner, density = 'comfortable'
         </div>
       )}
 
-      {menuOpenId === repo.id && <CardMenu repo={repo} anchorRef={menuButtonRef} onClose={() => onToggleMenu(repo.id)} {...handlers} />}
+      {menuOpenId === repo.id && (
+        <CardMenu repo={repo} anchorRef={menuButtonRef} autoFocusTag={menuIntent === 'tag'} onClose={() => onToggleMenu(repo.id)} {...handlers} />
+      )}
     </div>
   );
 }
@@ -970,6 +987,9 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [q, setQ] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
+  // When the card menu is opened via the "+ tag" affordance we want it to land
+  // straight on the tag input; null means a plain settings open.
+  const [menuIntent, setMenuIntent] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Notices dialog scope: null (closed) | 'all' | a repo id.
   const [noticesScope, setNoticesScope] = useState(null);
@@ -1129,7 +1149,12 @@ export default function App() {
   const onViewNotices = (scope) => setNoticesScope(scope);
   const onAddTag = (id, tag) => mutate(() => api.addTag(id, tag));
   const onRemoveTag = (id, tag) => mutate(() => api.removeTag(id, tag));
-  const onToggleMenu = (id) => setOpenMenuId((cur) => (cur === id ? null : id));
+  const onToggleMenu = (id, intent = null) => {
+    // An explicit intent (the "+ tag" chip) always opens and focuses; a plain
+    // gear click toggles the menu open/closed.
+    setOpenMenuId((cur) => (intent ? id : cur === id ? null : id));
+    setMenuIntent(intent);
+  };
 
   const onDragStartCard = (e, id) => {
     e.dataTransfer.setData('text/plain', String(id));
@@ -1202,6 +1227,7 @@ export default function App() {
 
   const cardProps = {
     menuOpenId: openMenuId,
+    menuIntent,
     showOwner: showOwners,
     density,
     onToggleMenu,

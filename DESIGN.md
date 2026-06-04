@@ -551,13 +551,20 @@ Colors → Owner palette. Do not add a second colour to the pill body.
 
 ### Repo tags
 
-User-assigned labels. When a repo has any tags, they render as a wrapped row of
-chips directly below the badge row (only when present, so untagged cards stay
-clean). Each chip (`badge-tag`) is a neutral pill with a small leading colour
+User-assigned labels. They render as a wrapped row of chips directly below the
+badge row. Each chip (`badge-tag`) is a neutral pill with a small leading colour
 dot (categorical palette, hashed from the tag via `tagColor`) and the tag text
 shown as `#tag` in `body-sm`. Like the owner badge, only the dot carries colour;
-the chip body is neutral. Read-only on the card — tags are added/removed in the
-CardMenu and filtered from the toolbar.
+the chip body is neutral. The existing tag chips are read-only on the card —
+tags are removed in the CardMenu and filtered from the toolbar.
+
+The row always ends with a **"＋ tag" affordance**: a dashed-outline neutral
+chip (leading `Tag` icon, label `tag`) that makes tagging discoverable without
+hunting through the settings menu. It is present even on untagged cards. Clicking
+it opens the CardMenu and moves focus straight to the tag input (the menu's
+`autoFocusTag` path), so a tag can be typed immediately. Its accessible name is
+`Add tag to <repo>` to stay distinct from the menu's plain "Add tag" submit
+button.
 
 ### CardMenu (popover)
 
@@ -571,7 +578,8 @@ Contains these action groups, each separated by a `border-neutral-800` divider:
 3. **Tags** — a `micro` label, the repo's current tags as removable chips (each
    with an `×`), and a text field (with a `datalist` of existing tags for
    autocomplete) + "Add" button to attach a new tag. Adding an existing tag is a
-   no-op.
+   no-op. When the menu was opened via the card's "＋ tag" affordance, this input
+   receives focus on open.
 4. **Ignore toggle** — a single full-width button reading "Ignore repo" /
    "Unignore repo" depending on current state.
 5. **Notices** — a `micro` label, a multi-line text field for a new notice, an

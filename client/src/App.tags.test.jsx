@@ -65,6 +65,22 @@ describe('tags UI', () => {
     await waitFor(() => expect(api.addTag).toHaveBeenCalledWith(1, 'db'));
   });
 
+  it('exposes a per-card "+ tag" affordance that opens the menu focused on the tag input', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    // The affordance is visible on the card without opening the settings menu.
+    const addBtn = screen.getByRole('button', { name: 'Add tag to alpha' });
+    fireEvent.click(addBtn);
+
+    const input = await screen.findByLabelText('New tag');
+    expect(input).toHaveFocus();
+
+    fireEvent.change(input, { target: { value: 'db' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add tag' }));
+    await waitFor(() => expect(api.addTag).toHaveBeenCalledWith(1, 'db'));
+  });
+
   it('filters the board by a selected tag', async () => {
     render(<App />);
     await screen.findByRole('link', { name: 'alpha' });

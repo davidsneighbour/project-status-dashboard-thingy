@@ -13,7 +13,9 @@ what's next.*
 * [x] open PRs cleared. The only one (Dependabot: bump Vite 5.4.21→8.0.16) was
   superseded by the manual Vite 8 upgrade already on `main`, so it couldn't merge
   (lockfile conflict) and was closed as obsolete. No open PRs remain.
-* [ ] adding tags via interface is impossible or not easily found
+* [x] adding tags via interface is impossible or not easily found — each card
+  now carries an always-visible dashed "＋ tag" chip (even when untagged) that
+  opens the CardMenu focused on the tag input. No more hunting in the gear menu.
 * [ ] add a filter option (independent of others) for repo priority (1-2)
 * [ ] write an extensive documentation that can be loaded via F1 and a direct link in the UI, describing all features and how to use them (including the CLI companion app once it's implemented). Use Markdown format and include screenshots where helpful.
 
