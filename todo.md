@@ -36,10 +36,23 @@ what's next.*
   guide describes the UI textually instead.)
 * [x] Add cspell configuration — `cspell.json` (British English, `en-GB`) with a
   project dictionary at `.vscode/dictionary.txt`, recommended the Code Spell
-  Checker extension, and cleared all flagged words (anglicised `behavior` →
-  `behaviour`, expanded `incl.`, added genuine tech terms like `dialog`/
+  Checker extension, and cleared all flagged words (anglicised US spellings to
+  en-GB, expanded an abbreviation, added genuine tech terms like `dialog`/
   `schedulable`/`unstub`). `npx cspell` is clean across the project.
-* [ ] check project and list deprecations. remove those deprecations if they are used and replace them with the suggested replacements. If there are no replacements remove the deprecation and list it as a breaking change in the todo.md for manual check.
+* [x] checked the project for deprecations. Findings:
+  * **Our code:** no deprecated JS/Node API usage (no `substr`, `new Buffer`,
+    `url.parse`, `fs.exists`, legacy React lifecycles, `ReactDOM.render`, etc.).
+  * **Direct dependencies:** all at latest; `npm outdated` is clean in every
+    workspace; none are flagged deprecated.
+  * **Transitive (no action available):** `prebuild-install@7.1.3` is marked
+    "no longer maintained", but it's pulled in by `better-sqlite3@12.10.0` (the
+    latest), which still depends on it. We can't replace it without an upstream
+    change — tracked, not a deprecation we introduce.
+  * **Breaking change for manual check:** `GITHUB_USERNAME` is our own
+    documented deprecated alias for `GITHUB_OWNERS` (read only as a fallback).
+    Internal usage is already on `GITHUB_OWNERS`; removing the alias entirely is
+    a user-facing breaking change (existing `.env` files), so it's deferred to a
+    future major rather than removed now. **Decision needed:** drop it in vNext?
 
 ## Snapshot (current state)
 
