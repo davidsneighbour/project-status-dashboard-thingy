@@ -493,6 +493,16 @@ single-repo API calls, then clears the selection and refreshes. Selection is
 transient (not persisted) and is pruned automatically when a selected repo
 disappears after a sync.
 
+### Toast (undo)
+
+A single transient **`Toast`** (`role="status"`, bottom-centre, `z-50`) gives
+feedback with an optional **Undo** for reversible destructive actions —
+currently **ignore** (single via the CardMenu, and bulk). Undo simply
+unignores, so it is exact. The toast auto-dismisses after ~6s and has a manual
+close. One toast at a time. (Clear-check and notice-deletion are not offered an
+undo yet: faithfully restoring them needs server-side state, so they show no
+lossy "undo".)
+
 ## Elevation & depth
 
 Depth is communicated primarily through:

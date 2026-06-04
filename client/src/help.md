@@ -86,7 +86,7 @@ Free-form labels for grouping repos however you like.
 Tick the checkbox on one or more cards (or list rows) and a bulk bar appears:
 **Checked now**, **Move to Today**, **Clear check**, **Ignore**, **Unignore**,
 and a **tag** input — each applies to every selected repo at once. **Deselect**
-clears the selection.
+clears the selection. Ignoring (single or bulk) pops a toast with **Undo**.
 
 ## Notices
 

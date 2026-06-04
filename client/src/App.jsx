@@ -7,6 +7,7 @@ import { EMPTY_DATA, readBoardCache, writeBoardCache } from './lib/boardCache.js
 import { Column } from './components/Column.jsx';
 import { ListView } from './components/ListView.jsx';
 import { BulkBar } from './components/BulkBar.jsx';
+import { Toast } from './components/Toast.jsx';
 import { HelpDialog } from './components/HelpDialog.jsx';
 import { NoticesDialog } from './components/NoticesDialog.jsx';
 import { ReportsDialog } from './components/ReportsDialog.jsx';
@@ -39,6 +40,8 @@ export default function App() {
   const [menuIntent, setMenuIntent] = useState(null);
   // Multi-select: a Set of selected repo ids for bulk actions.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  // Transient toast: { message, undo? }. Auto-dismissed after a few seconds.
+  const [toast, setToast] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // Notices dialog scope: null (closed) | 'all' | a repo id.
   const [noticesScope, setNoticesScope] = useState(null);
@@ -203,6 +206,15 @@ export default function App() {
       return next;
     });
 
+  const showToast = (message, undo = null) => setToast({ message, undo });
+
+  // Auto-dismiss the toast after a few seconds (re-armed whenever it changes).
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const load = useCallback(async () => {
     try {
       const d = await api.list();
@@ -275,7 +287,15 @@ export default function App() {
   const onClearCheck = (id) => mutate(() => api.clearSchedule(id));
   const onSetPriority = (id, priority) => mutate(() => api.setPriority(id, priority));
   const onSetInactivity = (id, days) => mutate(() => api.setInactivity(id, days));
-  const onSetIgnored = (id, ignored) => mutate(() => api.setIgnored(id, ignored));
+  const onSetIgnored = (id, ignored) => {
+    const result = mutate(() => api.setIgnored(id, ignored));
+    // Ignoring hides the repo — offer a one-click undo. (Unignoring needs none.)
+    if (ignored) {
+      const name = data.repos.find((r) => r.id === id)?.name ?? 'repo';
+      showToast(`Ignored ${name}`, () => onSetIgnored(id, false));
+    }
+    return result;
+  };
   const onAddNotice = (id, body) => mutate(() => api.addNotice(id, body));
   const onViewNotices = (scope) => setNoticesScope(scope);
   const onAddTag = (id, tag) => mutate(() => api.addTag(id, tag));
@@ -305,11 +325,17 @@ export default function App() {
     await Promise.all(ids.map((id) => fn(id)));
     await load();
   };
+  const bulkUnignore = (ids) => Promise.all(ids.map((id) => api.setIgnored(id, false))).then(load);
   const bulkActions = {
     checkedNow: () => bulkApply((id) => api.setChecked(id, 0)),
     moveToday: () => bulkApply((id) => api.setChecked(id, data.defaultInactivityDays)),
     clear: () => bulkApply((id) => api.clearSchedule(id)),
-    ignore: () => bulkApply((id) => api.setIgnored(id, true)),
+    ignore: () => {
+      const ids = [...selectedIds];
+      const result = bulkApply((id) => api.setIgnored(id, true));
+      if (ids.length) showToast(`${ids.length} repo${ids.length === 1 ? '' : 's'} ignored`, () => bulkUnignore(ids));
+      return result;
+    },
     unignore: () => bulkApply((id) => api.setIgnored(id, false)),
     tag: (tag) => bulkApply((id) => api.addTag(id, tag)),
   };
@@ -702,6 +728,13 @@ export default function App() {
           onClose={() => setNoticesScope(null)}
           onScopeChange={setNoticesScope}
           onChanged={load}
+        />
+      )}
+      {toast && (
+        <Toast
+          message={toast.message}
+          onUndo={toast.undo ? () => { toast.undo(); setToast(null); } : undefined}
+          onDismiss={() => setToast(null)}
         />
       )}
     </div>

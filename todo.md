@@ -102,8 +102,14 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
   Ignore / Unignore / tag) that loops the existing single-repo endpoints over the
   whole selection, then clears + refreshes. Selection is pruned when a repo
   disappears after a sync.
-* [ ] **(P1)** Undo (toast with "undo") for destructive actions: delete notice,
-  clear check, bulk ops.
+* [x] **(P1)** Undo toast — a reusable `Toast` with an **Undo** action now backs
+  **ignore** (single via CardMenu + bulk), where undo is exact (unignore). Toast
+  auto-dismisses (~6s) + manual close. Faithful undo for delete-notice and
+  clear-check needs server-side restore (re-adding a notice loses its timestamp;
+  a cleared schedule can't be reconstructed), so it's split into the P2 below
+  rather than shipping a lossy undo.
+* [ ] **(P2)** Server-side restore so undo can cover notice-deletion (preserve
+  `created_at`) and clear-check (snapshot the prior anchor/`checked_at`).
 * [ ] **(P2)** Toast/notification system for action feedback.
 * [ ] **(P2)** Persist view/display prefs server-side so web + CLI agree.
 * [ ] **(P2)** Settings panel (review cycle, sync interval, owners) editable in-app
