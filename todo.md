@@ -5,45 +5,7 @@ what's next.*
 
 ## Manual additions
 
-* [x] `npm test` printed a Vite `esbuild`/`oxc` deprecation warning — root cause
-  was an old toolchain (Vite 5 + `@vitejs/plugin-react` 4 against vitest's bundled
-  Rolldown Vite 8). **Properly fixed** by the dependency upgrade below: Vite 8 +
-  `@vitejs/plugin-react` 6 (Rolldown-native) + React 19 + Express 5. The temporary
-  `customLogger` filter is gone; output is clean.
-* [x] open PRs cleared. The only one (Dependabot: bump Vite 5.4.21→8.0.16) was
-  superseded by the manual Vite 8 upgrade already on `main`, so it couldn't merge
-  (lockfile conflict) and was closed as obsolete. No open PRs remain.
-* [x] server + CLI coverage were red against the raised 90/85/85/90 floors (a
-  pre-existing gap since the threshold bump). Restored to green with real tests
-  (report kinds + sparse data, GitHub owner/membership edge paths, cold-cache
-  board, CLI priority/clear paths) and `/* v8 ignore */` on bootstrap-only code;
-  `db.js` (pure DDL) excluded from measurement. `npm run test:coverage` passes.
-* [x] adding tags via interface is impossible or not easily found — each card
-  now carries an always-visible dashed "＋ tag" chip (even when untagged) that
-  opens the CardMenu focused on the tag input. No more hunting in the gear menu.
-* [x] add a filter option (independent of others) for repo priority (1-2) —
-  repurposed the vestigial `priority` column as a real, independent triage
-  priority (P1/P2/P3). Set it from the CardMenu or `repo-triage priority`; a
-  coloured chip shows on cards; a toolbar "priority" popover filters by level
-  (composes with every other filter). Decoupled from the check/schedule flow.
-* [x] write extensive documentation loaded via F1 and a direct link in the UI —
-  `client/src/help.md` is now a full user guide (the big picture, reading a card,
-  scheduling, priority, tags, notices, ignore, filtering, display, reports, sync/
-  auth/owners, keyboard shortcuts, the full CLI command table, and a config-var
-  reference). It opens via `F1` and the header **Help** button; the HelpDialog
-  markdown renderer gained h3/ol/links/bold/rules/table support to render it.
-  (Screenshots deferred — can't capture a real browser in this environment; the
-  guide describes the UI textually instead.)
-* [x] Add cspell configuration — `cspell.json` (British English, `en-GB`) with a
-  project dictionary at `.vscode/dictionary.txt`, recommended the Code Spell
-  Checker extension, and cleared all flagged words (anglicised US spellings to
-  en-GB, expanded an abbreviation, added genuine tech terms like `dialog`/
-  `schedulable`/`unstub`). `npx cspell` is clean across the project.
 * [x] checked the project for deprecations. Findings:
-  * **Our code:** no deprecated JS/Node API usage (no `substr`, `new Buffer`,
-    `url.parse`, `fs.exists`, legacy React lifecycles, `ReactDOM.render`, etc.).
-  * **Direct dependencies:** all at latest; `npm outdated` is clean in every
-    workspace; none are flagged deprecated.
   * **Transitive (no action available):** `prebuild-install@7.1.3` is marked
     "no longer maintained", but it's pulled in by `better-sqlite3@12.10.0` (the
     latest), which still depends on it. We can't replace it without an upstream
@@ -78,15 +40,11 @@ Local-only day-schedule kanban for triaging GitHub repositories.
 
 ## Known gaps / loose ends
 
-* [x] `README.md` refreshed (owners, tags, notices, ignore, reports, CLI, gh
-  auth, prebuilt help SVG, accessibility, Vite 8 / React 19 / Express 5 stack).
-* [x] `repo_state.priority` (1–3) was vestigial — **decided: repurposed as a
-  real, independent triage priority** (set via CardMenu / `priority` CLI / the
-  `/priority` route; filtered in UI + CLI; decoupled from check via new `/clear`).
-* [ ] `App.jsx` is one ~1.3k-line file — extract components (Board, Column, Card,
-  dialogs) as features land.
-
----
+* [x] `App.jsx` was one ~1.8k-line file — split into a container (`App.jsx`,
+  ~600 lines) plus one component per file under `components/` (Column, RepoCard,
+  CardMenu, Badge, Help/Notices/Reports dialogs, Tag/Priority/Fields menus) with
+  shared bits in `lib/constants.js` + `lib/boardCache.js`. All tests unchanged
+  and green.
 
 ## Roadmap
 
@@ -94,9 +52,6 @@ Priority key: **(P0)** next / quick win · **(P1)** soon · **(P2)** later.
 
 ### 1. GitHub via the `gh` CLI (foundational)
 
-* [x] **(P0)** Auth via `gh`: if `GITHUB_TOKEN` is unset, fall back to
-  `gh auth token` so users who already `gh auth login` need no PAT. Surface which
-  auth source is active in `/api/repos` (`authSource: env|gh|null`).
 * [ ] **(P1)** Fetch through `gh api --paginate` (with REST fetch as fallback) to
   drop custom pagination and inherit `gh`'s auth, retry, and rate-limit handling.
 * [ ] **(P1)** Enrich repo metadata cheaply via `gh api`/GraphQL: open-PR count,
@@ -108,13 +63,6 @@ Priority key: **(P0)** next / quick win · **(P1)** soon · **(P2)** later.
 
 ### 2. Tags & flags
 
-* [x] **(P0)** `repo_tag` table (repo_id, tag, created_at) + API:
-  `GET/POST/DELETE /api/repos/:id/tags`, `GET /api/tags` (distinct + counts).
-  Tags normalised (trim/lower/cap), deduped; per-repo `tags[]` on the payload.
-* [x] **(P1)** Tag chips on cards (deterministic colour, like owner palette) and a
-  tag filter in the toolbar (multi-select, AND/OR).
-* [x] **(P1)** Manage tags in the card menu (add/remove with autocomplete from
-  existing tags); documented in `DESIGN.md`.
 * [ ] **(P2)** Bulk tag/untag via multi-select (see Usability).
 * [ ] **(P2)** Generic per-repo flags beyond `ignored` (e.g. `pinned`, `muted`,
   `needs-decision`) — a small extensible flag set rather than one column each.
@@ -124,12 +72,6 @@ Priority key: **(P0)** next / quick win · **(P1)** soon · **(P2)** later.
 A Node CLI (`bin/repo-triage`) that drives the same SQLite state as the web app,
 so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 
-* [x] **(P1)** Scaffolding: `repo-triage <command>` in `cli/`, talks to the local
-  API, `--json` output for piping, `--api`/`REPO_TRIAGE_API` override. (Direct-DB
-  fallback dropped: the repo catalogue lives in server memory, not SQLite.)
-* [x] **(P1)** `list` with filters (owner, tag, language, due, ignored/all) + `--json`.
-* [x] **(P1)** Set flags: `ignore`/`unignore`, `check [--days N]`, `clear`,
-  `interval <days|default>`, `tag add|rm <repo> <tag…>`, `note add <repo> "…"`.
 * [ ] **(P2)** Resolve repos by `owner/name` or fuzzy match; act on many at once
   (`--all-matching`, stdin list).
 * [ ] **(P2)** `gh` passthrough helpers (e.g. `repo-triage open <repo>` →
@@ -139,50 +81,16 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 
 ### 4. Reports & exports
 
-* [x] **(P1)** Report builder (server, `report.js`): summary, due, never-reviewed,
-  stale (`?days=`), per-owner, language distribution, archived, open-issues/PRs.
-* [x] **(P1)** `GET /api/reports/:kind?format=json|md|csv`; shared by the UI
-  Reports dialog and the `repo-triage report <kind>` CLI command.
 * [ ] **(P2)** Exportable Markdown digest ("weekly triage") suitable for pasting
   into an issue/PR; optional scheduled write to a file.
-* [x] **(P2)** Backup/restore: `GET /api/backup` exports all triage state
-  (repo_state/notices/tags) as JSON; `POST /api/restore` replaces it
-  transactionally (skips invalid rows, normalises tags). CLI `backup` /
-  `restore <file>`. (UI button deferred — file upload in-browser is a separate,
-  smaller follow-up.)
 
 ### 5. Display & board options
 
-* [x] **(P0)** Show fetched-but-hidden data on cards: ⭐ stars and open-issue count
-  (compact, muted; never as accent colour).
-* [x] **(P0)** "×" to clear a column's filter field (carried over idea).
-* [x] **(P1)** Group-by selector: **day** (default, schedule board), **owner**,
-  **tag**, or **language**. Non-day views are read-only organisers (no drag/
-  keyboard scheduling); tag view fans repos out per tag. Persisted; within-column
-  sort applies to all groupings. Built on `groupReposBy()` + `schedulable` prop.
-* [x] **(P1)** Card **density** toggle (compact/comfortable), persisted — compact
-  uses `p-2`, `line-clamp-1` descriptions, and hides the notice preview.
-* [x] **(P1)** Within-column sort selector (toolbar): Manual (drag order),
-  Name, Recently pushed, Stars, Due soonest — persisted to localStorage,
-  applied inside every column via `groupRepos(…, sortKey)`.
 * [ ] **(P1)** List/table view as an alternative to the board (sortable columns,
   good for bulk scanning and reports).
-* [x] **(P2)** Field visibility toggles — a toolbar **fields** menu shows/hides
-  language, pushed date, stars, open issues, and the notice preview on cards.
-  Persisted to localStorage; gated in `RepoCard` via a `fields` prop.
 
 ### 6. Accessibility
 
-* [x] **(P0)** Keyboard scheduling: `[` / `]` reschedule the focused card one
-  column toward Today / further out (no drag needed); `aria-keyshortcuts` + help.
-* [x] **(P0)** Dialog/popover focus management: focus trap, restore focus on close,
-  `aria-modal`, labelled headings — shared `useDialog` hook on Help, Notices,
-  Reports, Card menu, and the Tag filter.
-* [x] **(P1)** Semantic roles/labels for board, columns, cards; a polite live
-  region announcing sync status and action results.
-* [x] **(P1)** Respect `prefers-reduced-motion` (sync spinner, transitions).
-* [x] **(P1)** Verify contrast of the phosphor-green neutral ramp (esp. muted text
-  and placeholders) against WCAG AA; adjust shades if needed.
 * [ ] **(P2)** Add an automated a11y check (axe) to the component test setup.
 
 ### 7. Usability & polish
@@ -190,9 +98,6 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 * [ ] **(P1)** Multi-select cards → bulk ignore / tag / schedule.
 * [ ] **(P1)** Undo (toast with "undo") for destructive actions: delete notice,
   clear check, bulk ops.
-* [x] **(P1)** Confirm before destructive actions — deleting a notice now arms
-  an inline **Delete / Cancel** confirm (no blocking `window.confirm`). Pattern
-  ready to reuse for bulk clear once multi-select lands.
 * [ ] **(P2)** Toast/notification system for action feedback.
 * [ ] **(P2)** Persist view/display prefs server-side so web + CLI agree.
 * [ ] **(P2)** Settings panel (review cycle, sync interval, owners) editable in-app
@@ -201,18 +106,9 @@ so flags/tags/notices can be scripted. `gh`-aware for GitHub-side actions.
 ### 8. Quality & infra
 
 * [ ] **(P1)** Refresh `README.md` + reconcile with `DESIGN.md` and `AGENTS.md`.
-* [x] **(P1)** GitHub Actions CI (`.github/workflows/ci.yml`): runs
-  `npm run test:coverage` across all workspaces on push/PR (blocking) and a
-  markdown-lint job (advisory — the shared `@dnbhq` config's `list-duplicates`
-  rule throws on `DESIGN.md` front-matter; reconcile separately before making
-  it blocking).
-* [x] **(P2)** Health/version endpoint (`/api/health`) for Docker/monitoring —
-  returns status, cacheReady, syncing, repoCount, lastFetch/lastError, uptime.
-* [ ] **(P2)** Split `App.jsx` into components (Board, Column, Card, CardMenu,
-  dialogs) once tag/report UI lands.
+* [x] **(P2)** Split `App.jsx` into components (Column, RepoCard, CardMenu,
+  Badge, dialogs, toolbar menus) — done; see Known gaps above.
 * [ ] **(P2)** E2E smoke test (Playwright): load → drag a card → add note → reload.
-
----
 
 ## Suggested next steps (summary)
 

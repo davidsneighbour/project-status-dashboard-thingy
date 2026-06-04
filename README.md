@@ -186,9 +186,10 @@ server/
     db.js       SQLite schema (repo_state, repo_notice, repo_tag)
 
 client/
-    src/App.jsx  Single-page UI (board, filters, dialogs, menus)
-    src/api.js   Fetch wrappers for API routes
-    src/lib/     board/date/useDialog helpers
+    src/App.jsx      Container: data loading, board state, header + toolbar
+    src/components/  Column, RepoCard, CardMenu, Badge, dialogs, toolbar menus
+    src/api.js       Fetch wrappers for API routes
+    src/lib/         board/date/useDialog + constants/boardCache helpers
 
 cli/
     repo-triage.mjs  Zero-dependency CLI over the HTTP API

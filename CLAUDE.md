@@ -109,13 +109,24 @@ Board width is `DEFAULT_INACTIVITY_DAYS` columns total:
 
 ### Frontend (`client/src/`)
 
-Single-component React UI in `App.jsx`:
+React UI split into a container plus one-component-per-file:
 
-* Dynamic day columns from server config
-* Sticky Today column + horizontally scrollable future columns
-* Drag-drop and card menu mutations always re-fetch via `load()`
-* Inclusive filters: `own`, `forks`, `archived` (persisted to localStorage)
-* Header displays sync status and GitHub API remaining/limit
+* `App.jsx`: the container — data loading/polling, all board state + persisted
+  view prefs (filters, density, sort, group-by, fields), and the header/toolbar.
+  Re-exports `ownerColor`/`tagColor`/`PRIORITY_*` for back-compat.
+* `components/`: `Column`, `RepoCard`, `CardMenu`, `Badge`, the dialogs
+  (`HelpDialog`, `NoticesDialog`, `ReportsDialog`), and the toolbar menus
+  (`TagFilter`, `PriorityFilter`, `FieldsMenu`).
+* `lib/constants.js`: shared UI constants/helpers (`cx`, `ACCENT`, `ICON`,
+  `ownerColor`/`tagColor`, `PRIORITY_*`, label maps, `FIELD_OPTIONS`).
+* `lib/boardCache.js`: localStorage board-cache helpers + `EMPTY_DATA`.
+* `lib/board.js`, `lib/date.js`, `lib/useDialog.js`: pure board logic, date
+  formatting, and the dialog focus-trap hook.
+
+Behaviour: dynamic day columns from server config; sticky Today column +
+horizontally scrollable future columns; drag-drop and card-menu mutations
+always re-fetch via `load()`; inclusive filters (`own`/`forks`/`archived`,
+persisted); header shows sync status and GitHub API remaining/limit.
 
 ## API routes
 
