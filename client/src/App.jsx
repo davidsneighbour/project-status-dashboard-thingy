@@ -380,6 +380,7 @@ export default function App() {
     },
     unignore: () => bulkApply((id) => api.setIgnored(id, false)),
     tag: (tag) => bulkApply((id) => api.addTag(id, tag)),
+    untag: (tag) => bulkApply((id) => api.removeTag(id, tag)),
   };
 
   const onDragStartCard = useCallback((e, id) => {

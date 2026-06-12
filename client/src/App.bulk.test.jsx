@@ -94,6 +94,20 @@ describe('multi-select bulk actions', () => {
     expect(api.addTag).toHaveBeenCalledWith(2, 'sweep');
   });
 
+  it('bulk-untags every selected repo', async () => {
+    await selectBoth();
+    fireEvent.change(screen.getByLabelText('Bulk tag'), { target: { value: 'old-tag' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove tag' }));
+    await waitFor(() => expect(api.removeTag).toHaveBeenCalledTimes(2));
+    expect(api.removeTag).toHaveBeenCalledWith(1, 'old-tag');
+    expect(api.removeTag).toHaveBeenCalledWith(2, 'old-tag');
+  });
+
+  it('Remove tag button is disabled when tag input is empty', async () => {
+    await selectBoth();
+    expect(screen.getByRole('button', { name: 'Remove tag' })).toBeDisabled();
+  });
+
   it('selects every visible repo in a column via the column "select all"', async () => {
     render(<App />);
     await screen.findByRole('link', { name: 'alpha' });
