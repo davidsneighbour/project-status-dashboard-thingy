@@ -190,4 +190,26 @@ describe('api wrapper contract', () => {
             ])
         );
     });
+
+    it('covers clearSchedule, restoreState, deleteTag, addFlag, removeFlag', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true }) });
+
+        await api.clearSchedule(1);
+        await api.restoreState(1, '2026-05-01T00:00:00.000Z', '2026-05-02T00:00:00.000Z');
+        await api.deleteTag('infra');
+        await api.addFlag(1, 'pinned');
+        await api.removeFlag(1, 'pinned');
+
+        const calls = fetchMock.mock.calls;
+        expect(calls[0]).toEqual(['/api/repos/1/clear', { method: 'POST' }]);
+        expect(calls[1]).toEqual(['/api/repos/1/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ priority_set_at: '2026-05-01T00:00:00.000Z', checked_at: '2026-05-02T00:00:00.000Z' }),
+        }]);
+        expect(calls[2]).toEqual(['/api/tags/infra', { method: 'DELETE' }]);
+        expect(calls[3][0]).toBe('/api/repos/1/flags');
+        expect(calls[3][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ flag: 'pinned' }) });
+        expect(calls[4]).toEqual(['/api/repos/1/flags/pinned', { method: 'DELETE' }]);
+    });
 });

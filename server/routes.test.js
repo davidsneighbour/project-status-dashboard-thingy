@@ -716,4 +716,61 @@ describe('gh quick-action endpoints', () => {
     const res = await request(app).post('/api/repos/9999/gh/issue').send({ title: 'Test' });
     expect(res.status).toBe(404);
   });
+
+  it('POST /gh/open returns 500 when gh throws', async () => {
+    execFileSync.mockImplementation(() => { throw new Error('gh: command not found'); });
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/open`);
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/command not found/);
+  });
+
+  it('POST /gh/open error path uses full error object when message is empty', async () => {
+    execFileSync.mockImplementation(() => { throw new Error(); }); // empty message → falsy
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/open`);
+    expect(res.status).toBe(500);
+    expect(typeof res.body.error).toBe('string');
+  });
+
+  it('POST /gh/issue returns 500 when gh throws', async () => {
+    execFileSync.mockImplementation(() => { throw new Error('gh: command not found'); });
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/issue`).send({ title: 'Test issue' });
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/command not found/);
+  });
+
+  it('POST /gh/issue treats non-string title as empty and returns 400', async () => {
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/issue`).send({ title: null });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/);
+  });
+
+  it('POST /gh/issue returns null number when gh output has no issue URL', async () => {
+    execFileSync.mockReturnValue('github issue created\n'); // no /issues/123 pattern
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/issue`).send({ title: 'Test' });
+    expect(res.status).toBe(200);
+    expect(res.body.number).toBeNull();
+  });
+});
+
+describe('GET /api/reports/:kind format aliases', () => {
+  it('renders markdown via format=markdown alias', async () => {
+    const res = await request(app).get('/api/reports/summary?format=markdown');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/markdown/);
+    expect(res.text).toContain('## Summary');
+  });
+});
+
+describe('POST /api/restore transaction error handling', () => {
+  it('returns 400 with "restore failed" when the transaction throws', async () => {
+    // Two rows with the same repo_id violate the PRIMARY KEY constraint,
+    // causing better-sqlite3 to throw inside the transaction.
+    const res = await request(app).post('/api/restore').send({
+      repo_state: [{ repo_id: REPO.id }, { repo_id: REPO.id }],
+      repo_notice: [],
+      repo_tag: [],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/restore failed/);
+  });
 });
