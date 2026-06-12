@@ -1,5 +1,5 @@
 # ---- Stage 1: build the React client --------------------------------------
-FROM node:26-bookworm-slim AS client-build
+FROM cgr.dev/chainguard/node:latest-dev AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm install
@@ -7,13 +7,11 @@ COPY client/ ./
 RUN npm run build
 
 # ---- Stage 2: server runtime ----------------------------------------------
-FROM node:26-bookworm-slim AS server
+FROM cgr.dev/chainguard/node:latest-dev AS server
 WORKDIR /app/server
 
 # build tools so better-sqlite3 can compile its native binding if no prebuilt
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 make g++
 
 COPY server/package*.json ./
 RUN npm install --omit=dev

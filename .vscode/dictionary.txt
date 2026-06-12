@@ -2,6 +2,7 @@
 Ananke
 autoprefixer
 backend
+chainguard
 cutoff
 davidsneighbour
 dependabot
