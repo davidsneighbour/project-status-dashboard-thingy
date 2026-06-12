@@ -60,7 +60,7 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = fals
           'fixed z-20 border border-neutral-700 bg-neutral-900 p-2 shadow-2xl',
           isMobile
             ? 'inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-lg [&_button]:min-h-[44px]'
-            : 'w-64 rounded-lg'
+            : 'w-64 max-h-[85vh] overflow-y-auto rounded-lg'
         )}
         style={isMobile ? undefined : pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
       >
