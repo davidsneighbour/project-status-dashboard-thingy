@@ -812,7 +812,7 @@ function startServer() {
       console.log(`  Listening on all network interfaces, including http://<your-lan-ip>:${PORT}`);
     }
     console.log('');
-    console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${SYNC_INTERVAL_MINUTES}m`);
+    console.log(`  Sync on startup: ${SYNC_ON_STARTUP} | Auto-sync: ${SYNC_AUTO} every ${getEffectiveSyncIntervalMinutes()}m`);
 
     // Kick off the initial GitHub load in the background so a slow fetch never
     // blocks the server from accepting requests. The frontend polls /api/repos
