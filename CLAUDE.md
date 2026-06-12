@@ -76,6 +76,7 @@ set in each `vitest.config.js` and fail the run on regression.
 | `SYNC_INTERVAL_MINUTES` | no | `60` | Auto-sync interval, min 1 |
 | `DATA_DIR` | no | `/data` (Docker), `./data` fallback | SQLite directory |
 | `ENRICH_METADATA` | no | `false` | Run per-repo GraphQL enrichment after each sync (open PRs, latest release, last commit, CI status). Requires `gh` CLI to be logged in. Costs rate-limit budget. |
+| `PAGINATE_VIA_GH` | no | `false` | Route repo-list pagination through `gh api --paginate` instead of REST. Org/membership detection stays on REST. Rate-limit state is refreshed via one REST call after each gh sync. |
 
 ## Architecture
 

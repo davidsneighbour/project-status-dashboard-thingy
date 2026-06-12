@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { authStatus, enrichRepos, fetchAllRepos, parseOwners, rateLimit, sourceStatus } from './github.js';
+import { authStatus, enrichRepos, fetchAllRepos, isGhPaginateEnabled, parseOwners, rateLimit, sourceStatus } from './github.js';
 
 // `gh auth token` is shelled out via execFileSync — mock it so it's deterministic.
 vi.mock('node:child_process', () => ({
@@ -520,5 +520,148 @@ describe('enrichRepos', () => {
     enrichRepos(repos, null);
     const [, args] = execFileSync.mock.calls[0];
     expect(args).not.toContain('--header');
+  });
+});
+
+describe('isGhPaginateEnabled', () => {
+  afterEach(() => {
+    delete process.env.PAGINATE_VIA_GH;
+  });
+
+  it('returns false when the env var is unset', () => {
+    delete process.env.PAGINATE_VIA_GH;
+    expect(isGhPaginateEnabled()).toBe(false);
+  });
+
+  it('returns true when set to "true" (case-insensitive)', () => {
+    process.env.PAGINATE_VIA_GH = 'true';
+    expect(isGhPaginateEnabled()).toBe(true);
+    process.env.PAGINATE_VIA_GH = 'TRUE';
+    expect(isGhPaginateEnabled()).toBe(true);
+  });
+
+  it('returns false for any other value', () => {
+    process.env.PAGINATE_VIA_GH = '1';
+    expect(isGhPaginateEnabled()).toBe(false);
+  });
+});
+
+describe('fetchAllRepos — PAGINATE_VIA_GH mode', () => {
+  beforeEach(() => {
+    process.env.PAGINATE_VIA_GH = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.PAGINATE_VIA_GH;
+  });
+
+  it('calls gh api --paginate for the self repo path when no owners configured', async () => {
+    const ghRepos = [repo({ id: 1, full_name: 'me/r', owner: { login: 'me', type: 'User' } })];
+    execFileSync.mockReturnValueOnce(JSON.stringify(ghRepos) + '\n');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS })));
+
+    const result = await fetchAllRepos();
+
+    const ghCall = execFileSync.mock.calls[0];
+    expect(ghCall[0]).toBe('gh');
+    expect(ghCall[1]).toEqual(expect.arrayContaining(['api', '--paginate']));
+    expect(ghCall[1][2]).toContain('/user/repos');
+    expect(ghCall[1]).toContain('Authorization: Bearer test-token');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 1, owner: 'me' });
+  });
+
+  it('concatenates multiple page arrays from gh api --paginate output', async () => {
+    const page1 = Array.from({ length: 3 }, (_, i) =>
+      repo({ id: i + 1, full_name: `me/r${i}`, owner: { login: 'me', type: 'User' } })
+    );
+    const page2 = [repo({ id: 10, full_name: 'me/last', owner: { login: 'me', type: 'User' } })];
+    execFileSync.mockReturnValueOnce(JSON.stringify(page1) + '\n' + JSON.stringify(page2) + '\n');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS })));
+
+    const result = await fetchAllRepos();
+    expect(result).toHaveLength(4);
+  });
+
+  it('throws repoListError when gh exits with a 404 (no-owners path)', async () => {
+    const err = new Error('gh error');
+    err.stderr = 'error (HTTP 404): Not Found';
+    execFileSync.mockImplementationOnce(() => { throw err; });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(fetchAllRepos()).rejects.toThrow(/GitHub API 404/);
+  });
+
+  it('throws repoListError when gh exits with a 500 and no HTTP status in stderr', async () => {
+    const err = new Error('unexpected error');
+    err.stderr = '';
+    execFileSync.mockImplementationOnce(() => { throw err; });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(fetchAllRepos()).rejects.toThrow(/GitHub API 500/);
+  });
+
+  it('refreshes rate-limit via REST after a successful gh sync', async () => {
+    execFileSync.mockReturnValueOnce(JSON.stringify([]) + '\n');
+    const fetchMock = vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchAllRepos();
+
+    const urls = fetchMock.mock.calls.map(([u]) => u);
+    expect(urls.some((u) => u.includes('/rate_limit'))).toBe(true);
+    expect(rateLimit.remaining).toBe(4990);
+  });
+
+  it('routes org owner through gh api --paginate for the repo list, REST for membership', async () => {
+    process.env.GITHUB_OWNERS = 'my-org';
+    const ghRepos = [repo({ id: 5, full_name: 'my-org/r', owner: { login: 'my-org', type: 'Organization' } })];
+    execFileSync.mockReturnValueOnce(JSON.stringify(ghRepos) + '\n');
+
+    const fetchMock = routeFetch([
+      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
+      ['/user/memberships/orgs/my-org', () => makeRes({ body: { state: 'active' }, headers: RATE_HEADERS })],
+      ['/rate_limit', () => makeRes({ body: {}, headers: RATE_HEADERS })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAllRepos();
+
+    const ghCall = execFileSync.mock.calls[0];
+    expect(ghCall[1][2]).toContain('/orgs/my-org/repos');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 5, owner: 'my-org' });
+  });
+
+  it('falls back to user path via gh when org returns 404', async () => {
+    process.env.GITHUB_OWNERS = 'octocat';
+    const orgErr = new Error('gh error');
+    orgErr.stderr = 'error (HTTP 404): Not Found';
+    const ghRepos = [repo({ id: 3, full_name: 'octocat/hello', owner: { login: 'octocat', type: 'User' } })];
+
+    execFileSync
+      .mockImplementationOnce(() => { throw orgErr; })  // org path → 404
+      .mockReturnValueOnce(JSON.stringify(ghRepos) + '\n');  // user path
+
+    const fetchMock = routeFetch([
+      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
+      ['/rate_limit', () => makeRes({ body: {}, headers: RATE_HEADERS })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAllRepos();
+
+    const userCall = execFileSync.mock.calls[1];
+    expect(userCall[1][2]).toContain('/users/octocat/repos');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 3 });
+  });
+
+  it('rate-limit refresh failure does not abort the sync', async () => {
+    execFileSync.mockReturnValueOnce(JSON.stringify([]) + '\n');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+
+    // Should resolve, not reject
+    await expect(fetchAllRepos()).resolves.toEqual([]);
   });
 });

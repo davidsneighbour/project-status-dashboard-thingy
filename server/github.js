@@ -203,12 +203,55 @@ async function paginateRepos(makeUrl, headers) {
   return { ok: true, status: 200, repos: out };
 }
 
+/**
+ * Whether to route repo-list pagination through `gh api --paginate` instead
+ * of REST. Reads the env var at call time so tests can toggle it without
+ * re-importing the module.
+ *
+ * @returns {boolean}
+ */
+export function isGhPaginateEnabled() {
+  return (process.env.PAGINATE_VIA_GH || '').toLowerCase() === 'true';
+}
+
+// Paginate via `gh api --paginate`. Returns same { ok, status, repos } shape
+// as paginateRepos. gh outputs one JSON array per page on its own line; we
+// concatenate them. On non-zero exit the error's stderr carries the HTTP status.
+function paginateViaGh(ghPath, token) {
+  const args = ['api', '--paginate', ghPath];
+  if (token) args.push('--header', `Authorization: Bearer ${token}`);
+  try {
+    const raw = execFileSync('gh', args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60000,
+    });
+    const repos = [];
+    for (const line of raw.split('\n')) {
+      const t = line.trim();
+      if (!t) continue;
+      const parsed = JSON.parse(t);
+      if (Array.isArray(parsed)) repos.push(...parsed);
+    }
+    return { ok: true, status: 200, repos };
+  } catch (e) {
+    const stderr = typeof e.stderr === 'string' ? e.stderr : String(e.stderr || e.message || '');
+    const m = stderr.match(/HTTP (\d{3})/);
+    const status = m ? Number(m[1]) : 500;
+    return { ok: false, status, repos: [] };
+  }
+}
+
 const selfReposUrl = (page, perPage) =>
   `${GITHUB_API}/user/repos?per_page=${perPage}&page=${page}&affiliation=owner&visibility=all&sort=full_name`;
 const orgReposUrl = (owner) => (page, perPage) =>
   `${GITHUB_API}/orgs/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=all&sort=full_name`;
 const userReposUrl = (owner) => (page, perPage) =>
   `${GITHUB_API}/users/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=owner&sort=full_name`;
+
+const selfReposGhPath = '/user/repos?per_page=100&affiliation=owner&visibility=all&sort=full_name';
+const orgReposGhPath = (owner) => `/orgs/${encodeURIComponent(owner)}/repos?per_page=100&type=all&sort=full_name`;
+const userReposGhPath = (owner) => `/users/${encodeURIComponent(owner)}/repos?per_page=100&type=owner&sort=full_name`;
 
 // Is the authenticated token a member of this org? 200 = member, anything else
 // (404 not-a-member, 403 forbidden) = no, so we only see public repos.
@@ -220,17 +263,23 @@ async function isOrgMember(owner, headers) {
 }
 
 // Resolve one configured owner to a list of repos, recording warnings when we
-// can only reach public repositories.
-async function fetchOwnerRepos(owner, viewerLogin, headers) {
+// can only reach public repositories. When PAGINATE_VIA_GH is enabled, repo
+// list pages go through `gh api --paginate`; org/membership detection stays
+// on REST so the 404/403 status-sensitive logic is unaffected.
+async function fetchOwnerRepos(owner, viewerLogin, token, headers) {
   // The token's own account → use /user/repos so private repos are included.
   if (viewerLogin && owner.toLowerCase() === viewerLogin) {
-    const r = await paginateRepos(selfReposUrl, headers);
+    const r = isGhPaginateEnabled()
+      ? paginateViaGh(selfReposGhPath, token)
+      : await paginateRepos(selfReposUrl, headers);
     if (!r.ok) throw repoListError(r);
     return { repos: r.repos, scope: 'self' };
   }
 
   // Try the org endpoint first (exposes private org repos when authorized).
-  const orgRes = await paginateRepos(orgReposUrl(owner), headers);
+  const orgRes = isGhPaginateEnabled()
+    ? paginateViaGh(orgReposGhPath(owner), token)
+    : await paginateRepos(orgReposUrl(owner), headers);
 
   if (orgRes.ok) {
     const member = await isOrgMember(owner, headers);
@@ -245,7 +294,9 @@ async function fetchOwnerRepos(owner, viewerLogin, headers) {
 
   // Not an org (404) → it's a user account; load their public repos.
   if (orgRes.status === 404) {
-    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    const userRes = isGhPaginateEnabled()
+      ? paginateViaGh(userReposGhPath(owner), token)
+      : await paginateRepos(userReposUrl(owner), headers);
     if (!userRes.ok) throw repoListError(userRes);
     return { repos: userRes.repos, scope: 'public' };
   }
@@ -255,14 +306,16 @@ async function fetchOwnerRepos(owner, viewerLogin, headers) {
     sourceStatus.warnings.push(
       `Token is not authorized for organization "${owner}" (403) — loaded its public repositories only.`
     );
-    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    const userRes = isGhPaginateEnabled()
+      ? paginateViaGh(userReposGhPath(owner), token)
+      : await paginateRepos(userReposUrl(owner), headers);
     return { repos: userRes.ok ? userRes.repos : [], scope: 'public' };
   }
 
   throw repoListError(orgRes);
 }
 
-async function fetchConfiguredOwners(owners, headers) {
+async function fetchConfiguredOwners(owners, token, headers) {
   // The viewer's login lets us pull private repos for the token owner itself.
   let viewerLogin = null;
   const meRes = await ghGet(`${GITHUB_API}/user`, headers);
@@ -274,7 +327,7 @@ async function fetchConfiguredOwners(owners, headers) {
   const byId = new Map();
   for (const owner of owners) {
     try {
-      const { repos, scope } = await fetchOwnerRepos(owner, viewerLogin, headers);
+      const { repos, scope } = await fetchOwnerRepos(owner, viewerLogin, token, headers);
       for (const r of repos) byId.set(r.id, r);
       sourceStatus.owners.push({ owner, count: repos.length, scope });
     } catch (e) {
@@ -446,12 +499,25 @@ export async function fetchAllRepos(ownersOverride = undefined) {
 
   let raw;
   if (owners.length === 0) {
-    const r = await paginateRepos(selfReposUrl, headers);
+    let r;
+    if (isGhPaginateEnabled()) {
+      r = paginateViaGh(selfReposGhPath, token);
+    } else {
+      r = await paginateRepos(selfReposUrl, headers);
+    }
     if (!r.ok) throw repoListError(r);
     raw = r.repos;
     sourceStatus.owners.push({ owner: null, count: raw.length, scope: 'self' });
   } else {
-    raw = await fetchConfiguredOwners(owners, headers);
+    raw = await fetchConfiguredOwners(owners, token, headers);
+  }
+
+  // gh api --paginate doesn't update rateLimit headers; do one REST probe.
+  if (isGhPaginateEnabled()) {
+    try {
+      const rl = await ghGet(`${GITHUB_API}/rate_limit`, headers);
+      if (rl.ok) parseRateLimitHeaders(rl);
+    } catch { /* best effort — don't fail the sync */ }
   }
 
   // A clean fetch proves the token is valid.
