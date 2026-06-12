@@ -147,6 +147,9 @@ persisted); header shows sync status and GitHub API remaining/limit.
 | DELETE | `/api/tags/:tag` | Delete a tag from every repo that carries it |
 | GET | `/api/backup` | Export all triage state (repo_state/notice/tag) as JSON |
 | POST | `/api/restore` | Replace all triage state from a backup payload (transactional) |
+| POST | `/api/repos/:id/gh/open` | Open repo in browser via `gh repo view --web` |
+| GET | `/api/repos/:id/gh/prs` | List open PRs via `gh pr list` |
+| POST | `/api/repos/:id/gh/issue` | Create GitHub issue via `gh issue create`; body `{ title, body }` |
 | GET | `/api/settings` | Read effective settings (env defaults + DB overrides: defaultInactivityDays, syncIntervalMinutes, githubOwners) |
 | PUT | `/api/settings` | Write runtime setting overrides; unknown keys stripped; owners change triggers re-sync |
 | GET | `/api/prefs` | Read persisted view/display prefs blob (density, sort, view, groupBy, fields, filters, showIgnored) |

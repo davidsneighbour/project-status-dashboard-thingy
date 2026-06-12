@@ -378,6 +378,8 @@ export default function App() {
     [mutate, data.repos, showToast]
   );
   const onAddNotice = useCallback((id, body) => mutate(() => api.addNotice(id, body)), [mutate]);
+  const onGhPrs = useCallback((id) => api.ghPrs(id), []);
+  const onGhCreateIssue = useCallback((id, title, body) => api.ghCreateIssue(id, title, body), []);
   const onViewNotices = useCallback((scope) => setNoticesScope(scope), []);
   const onAddTag = useCallback((id, tag) => mutate(() => api.addTag(id, tag)), [mutate]);
   const onRemoveTag = useCallback((id, tag) => mutate(() => api.removeTag(id, tag)), [mutate]);
@@ -573,6 +575,8 @@ export default function App() {
     onSelectMany,
     allTags,
     defaultInactivity: data.defaultInactivityDays,
+    onGhPrs,
+    onGhCreateIssue,
   };
 
   // The inclusive own/forks/archived filter pills. Rendered inline in the

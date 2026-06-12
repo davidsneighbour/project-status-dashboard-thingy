@@ -72,6 +72,14 @@ export const api = {
       body: JSON.stringify({ flag }),
     }).then(json),
   removeFlag: (id, flag) => fetch(`/api/repos/${id}/flags/${encodeURIComponent(flag)}`, { method: 'DELETE' }).then(json),
+  ghOpen: (id) => fetch(`/api/repos/${id}/gh/open`, { method: 'POST' }).then(json),
+  ghPrs: (id) => fetch(`/api/repos/${id}/gh/prs`).then(json),
+  ghCreateIssue: (id, title, body) =>
+    fetch(`/api/repos/${id}/gh/issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body }),
+    }).then(json),
   getSettings: () => fetch('/api/settings').then(json),
   putSettings: (settings) =>
     fetch('/api/settings', {

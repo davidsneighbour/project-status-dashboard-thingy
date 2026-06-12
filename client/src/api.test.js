@@ -95,6 +95,34 @@ describe('api wrapper contract', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/reports/stale?format=md&days=90');
     });
 
+    it('POSTs to gh/open endpoint', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true }) });
+
+        await api.ghOpen(42);
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/repos/42/gh/open', { method: 'POST' });
+    });
+
+    it('GETs gh/prs endpoint', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ prs: [] }) });
+
+        await api.ghPrs(42);
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/repos/42/gh/prs');
+    });
+
+    it('POSTs gh/issue with title and body', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true, url: 'u', number: 1 }) });
+
+        await api.ghCreateIssue(42, 'My issue', 'Some body');
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/repos/42/gh/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: 'My issue', body: 'Some body' }),
+        });
+    });
+
     it('fetches settings with GET /api/settings', async () => {
         const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ settings: {}, defaults: {} }) });
 

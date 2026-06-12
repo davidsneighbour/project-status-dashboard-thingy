@@ -5,10 +5,16 @@ import { useDialog } from '../lib/useDialog.js';
 import { useIsMobile } from '../lib/useIsMobile.js';
 import { cx, tagColor, PRIORITY_LEVELS, PRIORITY_META, FLAG_NAMES, FLAG_META } from '../lib/constants.js';
 
-export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetPriority, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onAddFlag, onRemoveFlag, onClose }) {
+export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetPriority, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onAddFlag, onRemoveFlag, onGhPrs, onGhCreateIssue, onClose }) {
   const [days, setDays] = useState(repo.inactivity_days ?? '');
   const [notice, setNotice] = useState('');
   const [tag, setTag] = useState('');
+  // GitHub quick-action state
+  const [prsState, setPrsState] = useState(null); // null | 'loading' | {prs} | {error}
+  const [issueStep, setIssueStep] = useState(null); // null | 'form' | 'confirm' | 'done'
+  const [issueTitle, setIssueTitle] = useState('');
+  const [issueBody, setIssueBody] = useState('');
+  const [issueDone, setIssueDone] = useState(null); // {url, number} on success
   const [pos, setPos] = useState(null);
   const tagInputRef = useRef(null);
   const dialogRef = useDialog(onClose);
@@ -268,6 +274,147 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = fals
             {repo.ignored ? 'Unignore repo' : 'Ignore repo'}
           </button>
         </div>
+
+        {(onGhPrs || onGhCreateIssue) && (
+        <div className="mt-2 border-t border-neutral-800 pt-2">
+          <p className="px-1 pb-1 text-[10px] uppercase tracking-widest text-neutral-500">GitHub actions</p>
+          <div className="flex flex-col gap-1">
+            <a
+              href={repo.html_url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={onClose}
+              className="rounded-md bg-neutral-800 py-1 text-center text-[11px] text-neutral-300 hover:bg-neutral-700"
+            >
+              View on GitHub ↗
+            </a>
+
+            {onGhPrs && (
+              <>
+                <button
+                  onClick={async () => {
+                    if (prsState?.prs) { setPrsState(null); return; }
+                    setPrsState('loading');
+                    try {
+                      const d = await onGhPrs(repo.id);
+                      setPrsState({ prs: d.prs ?? [] });
+                    } catch {
+                      setPrsState({ error: 'gh failed — is gh installed and authenticated?' });
+                    }
+                  }}
+                  className="rounded-md bg-neutral-800 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700"
+                >
+                  {prsState === 'loading' ? 'loading PRs…' : prsState?.prs ? `Hide PRs (${prsState.prs.length})` : 'List open PRs'}
+                </button>
+                {prsState?.error && (
+                  <p role="alert" className="px-1 text-[10px] text-rose-400">{prsState.error}</p>
+                )}
+                {prsState?.prs && (
+                  <ul className="max-h-40 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950 p-1 text-[10px]">
+                    {prsState.prs.length === 0
+                      ? <li className="px-1 py-0.5 text-neutral-600">No open PRs</li>
+                      : prsState.prs.map((pr) => (
+                          <li key={pr.number}>
+                            <a
+                              href={pr.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block truncate rounded px-1 py-0.5 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+                              title={pr.title}
+                            >
+                              #{pr.number} {pr.title}
+                            </a>
+                          </li>
+                        ))
+                    }
+                  </ul>
+                )}
+              </>
+            )}
+
+            {onGhCreateIssue && issueStep == null && (
+              <button
+                onClick={() => setIssueStep('form')}
+                className="rounded-md bg-neutral-800 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700"
+              >
+                New issue…
+              </button>
+            )}
+            {onGhCreateIssue && issueStep === 'form' && (
+              <div className="flex flex-col gap-1 rounded-md border border-neutral-800 p-2">
+                <input
+                  type="text"
+                  value={issueTitle}
+                  onChange={(e) => setIssueTitle(e.target.value)}
+                  placeholder="Issue title (required)"
+                  aria-label="Issue title"
+                  className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-[11px] text-neutral-100 outline-hidden focus:border-neutral-500"
+                />
+                <textarea
+                  value={issueBody}
+                  onChange={(e) => setIssueBody(e.target.value)}
+                  placeholder="Body (optional)"
+                  aria-label="Issue body"
+                  rows={2}
+                  className="resize-none rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-[11px] text-neutral-100 outline-hidden focus:border-neutral-500"
+                />
+                <div className="flex gap-1">
+                  <button
+                    disabled={!issueTitle.trim()}
+                    onClick={() => setIssueStep('confirm')}
+                    className="flex-1 rounded bg-neutral-700 py-1 text-[11px] text-neutral-100 hover:bg-neutral-600 disabled:opacity-40"
+                  >
+                    Create issue
+                  </button>
+                  <button
+                    onClick={() => { setIssueStep(null); setIssueTitle(''); setIssueBody(''); }}
+                    className="rounded px-2 py-1 text-[11px] text-neutral-500 hover:text-neutral-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {onGhCreateIssue && issueStep === 'confirm' && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-200">
+                <p className="mb-1 font-medium">Create issue on GitHub?</p>
+                <p className="mb-2 break-all text-amber-300/80">&ldquo;{issueTitle}&rdquo;</p>
+                <div className="flex gap-1">
+                  <button
+                    onClick={async () => {
+                      setIssueStep('done');
+                      try {
+                        const d = await onGhCreateIssue(repo.id, issueTitle.trim(), issueBody.trim());
+                        setIssueDone({ url: d.url, number: d.number });
+                      } catch {
+                        setIssueDone({ error: 'gh failed — is gh installed and authenticated?' });
+                      }
+                    }}
+                    className="flex-1 rounded bg-amber-700/60 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-700/80"
+                  >
+                    Yes, create
+                  </button>
+                  <button
+                    onClick={() => setIssueStep('form')}
+                    className="rounded px-2 py-1 text-[11px] text-amber-300/60 hover:text-amber-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {onGhCreateIssue && issueStep === 'done' && (
+              issueDone?.error
+                ? <p role="alert" className="px-1 text-[10px] text-rose-400">{issueDone.error}</p>
+                : issueDone
+                  ? <a href={issueDone.url} target="_blank" rel="noreferrer" className="block rounded-md bg-neutral-800 py-1 text-center text-[11px] text-green-400 hover:bg-neutral-700">
+                      Issue #{issueDone.number} created ↗
+                    </a>
+                  : <p className="px-1 text-[10px] text-neutral-600">Creating…</p>
+            )}
+          </div>
+        </div>
+        )}
 
         <div className="mt-2 border-t border-neutral-800 pt-2">
           <label className="block px-1 text-[10px] uppercase tracking-widest text-neutral-500">Notice</label>

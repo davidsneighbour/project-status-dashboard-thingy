@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 
 // db.js reads DATA_DIR at import time, so point it at a throwaway dir BEFORE
@@ -12,6 +12,10 @@ process.env.DEFAULT_INACTIVITY_DAYS = '7';
 process.env.SYNC_ON_STARTUP = 'false';
 process.env.SYNC_AUTO = 'false';
 process.env.GITHUB_TOKEN = 'test-token';
+
+// Mock the gh CLI so tests never shell out.
+vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+const { execFileSync } = await import('node:child_process');
 
 // Keep GitHub offline and deterministic. refreshRepos() resolves to this list.
 vi.mock('./github.js', () => ({
@@ -642,5 +646,74 @@ describe('GET /api/prefs + PUT /api/prefs', () => {
     await request(app).put('/api/prefs').send({ density: 'compact' });
     const get = await request(app).get('/api/prefs');
     expect(get.body.prefs.density).toBe('compact');
+  });
+});
+
+describe('gh quick-action endpoints', () => {
+  beforeEach(() => {
+    execFileSync.mockReset();
+  });
+
+  it('POST /gh/open shells out to gh repo view --web', async () => {
+    execFileSync.mockReturnValue(undefined);
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/open`);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'gh', ['repo', 'view', REPO.full_name, '--web'], { stdio: 'ignore' }
+    );
+  });
+
+  it('POST /gh/open returns 404 for unknown repo', async () => {
+    const res = await request(app).post('/api/repos/9999/gh/open');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /gh/prs returns parsed PR list', async () => {
+    const fakePrs = [{ number: 7, title: 'Fix bug', url: 'https://github.com/me/alpha/pull/7', author: { login: 'dev' }, createdAt: '2026-06-01T00:00:00Z' }];
+    execFileSync.mockReturnValue(JSON.stringify(fakePrs));
+    const res = await request(app).get(`/api/repos/${REPO.id}/gh/prs`);
+    expect(res.status).toBe(200);
+    expect(res.body.prs).toEqual(fakePrs);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'gh', ['pr', 'list', '--repo', REPO.full_name, '--state', 'open', '--json', 'number,title,url,author,createdAt'],
+      { encoding: 'utf8' }
+    );
+  });
+
+  it('GET /gh/prs returns 404 for unknown repo', async () => {
+    const res = await request(app).get('/api/repos/9999/gh/prs');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /gh/prs returns 500 when gh fails', async () => {
+    execFileSync.mockImplementation(() => { throw new Error('gh: command not found'); });
+    const res = await request(app).get(`/api/repos/${REPO.id}/gh/prs`);
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/gh: command not found/);
+  });
+
+  it('POST /gh/issue creates an issue and returns url + number', async () => {
+    execFileSync.mockReturnValue('\nhttps://github.com/me/alpha/issues/42\n');
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/issue`).send({ title: 'Found a bug', body: 'Steps to reproduce...' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.url).toBe('https://github.com/me/alpha/issues/42');
+    expect(res.body.number).toBe(42);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'gh', ['issue', 'create', '--repo', REPO.full_name, '--title', 'Found a bug', '--body', 'Steps to reproduce...'],
+      { encoding: 'utf8' }
+    );
+  });
+
+  it('POST /gh/issue rejects empty title', async () => {
+    const res = await request(app).post(`/api/repos/${REPO.id}/gh/issue`).send({ title: '  ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/);
+  });
+
+  it('POST /gh/issue returns 404 for unknown repo', async () => {
+    const res = await request(app).post('/api/repos/9999/gh/issue').send({ title: 'Test' });
+    expect(res.status).toBe(404);
   });
 });
