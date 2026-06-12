@@ -774,3 +774,53 @@ describe('POST /api/restore transaction error handling', () => {
     expect(res.body.error).toMatch(/restore failed/);
   });
 });
+
+describe('GET/PUT/DELETE /api/tag-rules', () => {
+  it('GET returns empty rules list initially', async () => {
+    const res = await request(app).get('/api/tag-rules');
+    expect(res.status).toBe(200);
+    expect(res.body.rules).toEqual([]);
+  });
+
+  it('PUT creates a rule and it appears in GET', async () => {
+    const put = await request(app).put('/api/tag-rules/infra').send({ days: 14 });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ ok: true, tag: 'infra', days: 14 });
+
+    const get = await request(app).get('/api/tag-rules');
+    expect(get.body.rules).toEqual(expect.arrayContaining([{ tag: 'infra', days: 14 }]));
+  });
+
+  it('PUT normalises tag to lowercase', async () => {
+    const put = await request(app).put('/api/tag-rules/URGENT').send({ days: 3 });
+    expect(put.body.tag).toBe('urgent');
+  });
+
+  it('PUT returns 400 for out-of-range days', async () => {
+    const res = await request(app).put('/api/tag-rules/x').send({ days: 0 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/days/);
+  });
+
+  it('PUT returns 400 for empty tag', async () => {
+    const res = await request(app).put('/api/tag-rules/%20').send({ days: 7 });
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE removes the rule', async () => {
+    await request(app).put('/api/tag-rules/tmp').send({ days: 7 });
+    const del = await request(app).delete('/api/tag-rules/tmp');
+    expect(del.status).toBe(200);
+    expect(del.body).toMatchObject({ ok: true, removed: 1 });
+
+    const get = await request(app).get('/api/tag-rules');
+    expect(get.body.rules.find((r) => r.tag === 'tmp')).toBeUndefined();
+  });
+
+  it('tag rule applies to effective_inactivity_days for a tagged repo', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/tags`).send({ tag: 'infra' });
+    const res = await request(app).get('/api/repos');
+    const repo = res.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.effective_inactivity_days).toBe(14);
+  });
+});

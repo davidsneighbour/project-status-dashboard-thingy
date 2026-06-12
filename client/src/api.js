@@ -101,4 +101,13 @@ export const api = {
     const p = fetch(`/api/reports/${encodeURIComponent(kind)}?${qs}`);
     return format === 'json' ? p.then(json) : p.then((r) => r.text());
   },
+  getTagRules: () => fetch('/api/tag-rules').then(json),
+  putTagRule: (tag, days) =>
+    fetch(`/api/tag-rules/${encodeURIComponent(tag)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days }),
+    }).then(json),
+  deleteTagRule: (tag) =>
+    fetch(`/api/tag-rules/${encodeURIComponent(tag)}`, { method: 'DELETE' }).then(json),
 };

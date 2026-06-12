@@ -118,4 +118,15 @@ db.exec(`
   );
 `);
 
+// Per-tag review cadence overrides. When a repo carries a matching tag,
+// this days value takes precedence over the global default (but per-repo
+// inactivity_days still wins). Minimum inactivity across all matching tags.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tag_rule (
+    tag        TEXT PRIMARY KEY,
+    days       INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
 export default db;

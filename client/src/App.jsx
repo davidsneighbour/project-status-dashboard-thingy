@@ -60,6 +60,7 @@ export default function App() {
   const [reportsOpen, setReportsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [remoteSettings, setRemoteSettings] = useState(null);
+  const [tagRules, setTagRules] = useState([]);
   // Mobile overflow: the collapsed toolbar controls live in a bottom action sheet.
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -345,6 +346,7 @@ export default function App() {
 
   const openSettings = () => {
     api.getSettings().then((d) => setRemoteSettings(d)).catch(() => {});
+    api.getTagRules().then((d) => setTagRules(d.rules ?? [])).catch(() => {});
     setSettingsOpen(true);
   };
 
@@ -901,7 +903,10 @@ export default function App() {
         <SettingsDialog
           settings={remoteSettings?.settings}
           defaults={remoteSettings?.defaults}
+          tagRules={tagRules}
           onSave={saveSettings}
+          onTagRuleSave={(tag, days) => api.putTagRule(tag, days).then(() => api.getTagRules()).then((d) => { setTagRules(d.rules ?? []); load(); })}
+          onTagRuleDelete={(tag) => api.deleteTagRule(tag).then(() => api.getTagRules()).then((d) => { setTagRules(d.rules ?? []); load(); })}
           onClose={() => setSettingsOpen(false)}
         />
       )}

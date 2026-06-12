@@ -39,10 +39,20 @@ export function buildPayload() {
     else flagsByRepo.set(f.repo_id, [f.flag]);
   }
 
+  const tagRuleRows = db.prepare('SELECT tag, days FROM tag_rule').all();
+  const tagRules = new Map(tagRuleRows.map((r) => [r.tag, r.days]));
+
+  const defaultInactivityDays = getEffectiveInactivityDays();
+
   const result = repoCache.map((r) => {
     const s = byId.get(r.id) || { priority: null, priority_set_at: null, inactivity_days: null, position: 0, ignored: 0, snooze_until: null };
     const enrich = enrichCache.get(r.id) ?? {};
-    const defaultInactivityDays = getEffectiveInactivityDays();
+    const tags = tagsByRepo.get(r.id) ?? [];
+    // Tag rule: take the minimum days across all matching rules (most frequent review wins).
+    const matchingDays = tags.map((t) => tagRules.get(t)).filter((d) => d != null);
+    const tagRuleDays = matchingDays.length ? Math.min(...matchingDays) : null;
+    // Precedence: per-repo override → tag rule → global default
+    const resolvedDefault = tagRuleDays ?? defaultInactivityDays;
     return {
       ...r,
       ...enrich,
@@ -50,15 +60,15 @@ export function buildPayload() {
       priority_set_at: s.priority_set_at,
       checked_at: s.checked_at ?? null,
       inactivity_days: s.inactivity_days,
-      effective_inactivity_days: s.inactivity_days ?? defaultInactivityDays,
+      effective_inactivity_days: s.inactivity_days ?? resolvedDefault,
       position: s.position ?? 0,
       ignored: Boolean(s.ignored),
       snooze_until: s.snooze_until ?? null,
       notice_count: countByRepo.get(r.id) ?? 0,
       latest_notice: latestByRepo.get(r.id) ?? null,
-      tags: tagsByRepo.get(r.id) ?? [],
+      tags,
       flags: flagsByRepo.get(r.id) ?? [],
-      ...effectiveState(s, defaultInactivityDays, Date.now(), DAY_ROLLOVER_HOUR),
+      ...effectiveState(s, resolvedDefault, Date.now(), DAY_ROLLOVER_HOUR),
     };
   });
   setPayloadCache(result);

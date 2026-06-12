@@ -7,6 +7,7 @@ import reposRouter from './routes/repos.js';
 import syncRouter from './routes/sync.js';
 import settingsRouter from './routes/settings.js';
 import ghRouter from './routes/gh.js';
+import tagRulesRouter from './routes/tagrules.js';
 
 import { SYNC_ON_STARTUP, SYNC_AUTO, getEffectiveSyncIntervalMinutes } from './lib/settings.js';
 import { refreshRepos, queueRefresh, restartSyncInterval } from './lib/sync.js';
@@ -23,6 +24,7 @@ app.use('/api', reposRouter);
 app.use('/api', syncRouter);
 app.use('/api', settingsRouter);
 app.use('/api', ghRouter);
+app.use('/api', tagRulesRouter);
 
 // ---- Static client (built by Vite) ----------------------------------------
 // Bootstrap-only: present a production build when one exists. Route tests import

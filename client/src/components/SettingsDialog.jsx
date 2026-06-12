@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { useDialog } from '../lib/useDialog.js';
 import { cx } from '../lib/constants.js';
 
-export function SettingsDialog({ settings, defaults, onSave, onClose }) {
+export function SettingsDialog({ settings, defaults, tagRules = [], onSave, onTagRuleSave, onTagRuleDelete, onClose }) {
   const dialogRef = useDialog(onClose);
 
   const [defaultInactivityDays, setDefaultInactivityDays] = useState(
@@ -17,6 +17,20 @@ export function SettingsDialog({ settings, defaults, onSave, onClose }) {
   );
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState([]);
+  const [newRuleTag, setNewRuleTag] = useState('');
+  const [newRuleDays, setNewRuleDays] = useState('');
+  const [ruleError, setRuleError] = useState('');
+
+  const handleAddRule = async () => {
+    const tag = newRuleTag.trim().toLowerCase();
+    const days = Number(newRuleDays);
+    if (!tag) { setRuleError('Tag is required.'); return; }
+    if (!Number.isFinite(days) || days < 1 || days > 365) { setRuleError('Days must be 1–365.'); return; }
+    setRuleError('');
+    await onTagRuleSave?.(tag, days);
+    setNewRuleTag('');
+    setNewRuleDays('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -121,6 +135,60 @@ export function SettingsDialog({ settings, defaults, onSave, onClose }) {
             <p className="mt-1 text-[10px] text-neutral-600">
               Changing owners triggers an immediate re-sync. Env default: {defaults?.githubOwners || '(token owner)'}.
             </p>
+          </div>
+
+          <div className="border-t border-neutral-800 pt-4">
+            <p className={labelClass}>Tag rules</p>
+            <p className="mb-2 text-[10px] text-neutral-600">
+              Override review cadence per tag. Precedence: per-repo → tag rule → global default. Minimum days wins when multiple tags match.
+            </p>
+            {tagRules.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {tagRules.map((r) => (
+                  <li key={r.tag} className="flex items-center justify-between rounded border border-neutral-800 px-2 py-1 text-xs text-neutral-300">
+                    <span><span className="font-mono text-neutral-100">{r.tag}</span> → {r.days}d</span>
+                    <button
+                      type="button"
+                      onClick={() => onTagRuleDelete?.(r.tag)}
+                      aria-label={`Delete tag rule for ${r.tag}`}
+                      className="text-neutral-500 hover:text-rose-400"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {ruleError && (
+              <p role="alert" className="mb-1 text-[10px] text-rose-400">{ruleError}</p>
+            )}
+            <div className="flex gap-2">
+              <input
+                aria-label="Tag rule tag"
+                type="text"
+                placeholder="tag"
+                value={newRuleTag}
+                onChange={(e) => setNewRuleTag(e.target.value)}
+                className={cx(fieldClass, 'flex-1 placeholder:text-neutral-700')}
+              />
+              <input
+                aria-label="Tag rule days"
+                type="number"
+                min={1}
+                max={365}
+                placeholder="days"
+                value={newRuleDays}
+                onChange={(e) => setNewRuleDays(e.target.value)}
+                className={cx(fieldClass, 'w-20 placeholder:text-neutral-700')}
+              />
+              <button
+                type="button"
+                onClick={handleAddRule}
+                className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700"
+              >
+                Add
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-neutral-800 pt-4">

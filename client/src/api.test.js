@@ -212,4 +212,20 @@ describe('api wrapper contract', () => {
         expect(calls[3][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ flag: 'pinned' }) });
         expect(calls[4]).toEqual(['/api/repos/1/flags/pinned', { method: 'DELETE' }]);
     });
+
+    it('covers getTagRules, putTagRule, deleteTagRule', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true }) });
+
+        await api.getTagRules();
+        await api.putTagRule('infra', 14);
+        await api.deleteTagRule('infra');
+
+        expect(fetchMock.mock.calls[0]).toEqual(['/api/tag-rules']);
+        expect(fetchMock.mock.calls[1]).toEqual(['/api/tag-rules/infra', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 14 }),
+        }]);
+        expect(fetchMock.mock.calls[2]).toEqual(['/api/tag-rules/infra', { method: 'DELETE' }]);
+    });
 });
