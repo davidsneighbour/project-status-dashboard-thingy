@@ -242,6 +242,7 @@ components:
   rate-limit-zero:
     textColor: "{colors.accent-today}"
 ---
+<!-- markdownlint-disable list-duplicates MD041 -->
 
 ## Overview
 

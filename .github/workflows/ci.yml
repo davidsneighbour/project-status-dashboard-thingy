@@ -67,12 +67,6 @@ jobs:
   lint:
     name: Markdown lint
     runs-on: ubuntu-latest
-    # Advisory for now: the shared @dnbhq markdownlint config ships a custom
-    # `list-duplicates` rule that throws on DESIGN.md's front-matter, and a
-    # couple of pre-existing files (copilot-instructions.md) use a different
-    # list style. Keep the signal visible without blocking PRs until those are
-    # reconciled separately.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
