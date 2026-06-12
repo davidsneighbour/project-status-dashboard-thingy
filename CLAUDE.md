@@ -38,13 +38,29 @@ cd server && npm install && GITHUB_TOKEN=ghp_... npm run dev
 cd client && npm install && npm run dev
 ```
 
-### Docker (single port)
+### Docker — local build
 
 ```bash
 docker compose --env-file .env up --build
 ```
 
 Open: [http://localhost:8787](http://localhost:8787)
+
+### Docker — production image from GHCR (end-user path)
+
+No local checkout required. Pull the pre-built image published on each release:
+
+```bash
+# download the compose file once
+curl -O https://raw.githubusercontent.com/davidsneighbour/project-dashboard/main/docker-compose.prod.yml
+# create a .env with at minimum GITHUB_TOKEN=ghp_...
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Pin to a specific release with `IMAGE_TAG=1.2.3 docker compose -f docker-compose.prod.yml up -d`.
+
+The image is published to `ghcr.io/davidsneighbour/project-dashboard` automatically
+by `.github/workflows/docker-publish.yml` whenever `npm run release` creates a `v*` tag.
 
 ### Client production build
 

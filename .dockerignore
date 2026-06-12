@@ -4,3 +4,9 @@ server/public
 data
 .git
 .env
+e2e
+docs
+*.md
+!server/package*.json
+!client/package*.json
+.github
