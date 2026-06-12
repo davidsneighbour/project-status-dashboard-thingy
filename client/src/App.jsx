@@ -300,7 +300,17 @@ export default function App() {
   const mutate = useCallback((fn) => fn().then(load), [load]);
 
   const onSetChecked = useCallback((id, daysAgo = 0) => mutate(() => api.setChecked(id, daysAgo)), [mutate]);
-  const onClearCheck = useCallback((id) => mutate(() => api.clearSchedule(id)), [mutate]);
+  const onClearCheck = useCallback(
+    (id) => {
+      const repo = data.repos.find((r) => r.id === id);
+      const prioritySetAt = repo?.priority_set_at ?? null;
+      const checkedAt = repo?.checked_at ?? null;
+      const result = mutate(() => api.clearSchedule(id));
+      showToast('Check cleared', () => mutate(() => api.restoreState(id, prioritySetAt, checkedAt)));
+      return result;
+    },
+    [mutate, data.repos, showToast]
+  );
   const onSetPriority = useCallback((id, priority) => mutate(() => api.setPriority(id, priority)), [mutate]);
   const onSetInactivity = useCallback((id, days) => mutate(() => api.setInactivity(id, days)), [mutate]);
   // "Mark done for N days" from the mobile move sheet. See issue #17: the final
@@ -824,6 +834,12 @@ export default function App() {
           onClose={() => setNoticesScope(null)}
           onScopeChange={setNoticesScope}
           onChanged={load}
+          onDeleted={(notice) =>
+            notice &&
+            showToast('Notice deleted', () =>
+              mutate(() => api.addNotice(notice.repo_id, notice.body, notice.created_at))
+            )
+          }
         />
       )}
       {toast && (

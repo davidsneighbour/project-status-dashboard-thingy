@@ -54,6 +54,12 @@ describe('GET /api/repos', () => {
     expect(res.body).toHaveProperty('syncing');
     expect(res.body.repos.find((r) => r.id === REPO.id)).toBeTruthy();
   });
+
+  it('exposes checked_at on every repo', async () => {
+    const res = await request(app).get('/api/repos');
+    const repo = res.body.repos.find((r) => r.id === REPO.id);
+    expect(repo).toHaveProperty('checked_at');
+  });
 });
 
 describe('GET /api/health', () => {
@@ -270,6 +276,47 @@ describe('notices', () => {
     const after = await request(app).get('/api/repos');
     const repo = after.body.repos.find((r) => r.id === REPO.id);
     expect(repo.notice_count).toBe(1);
+  });
+
+  it('preserves a custom created_at when restoring a deleted notice', async () => {
+    const pastDate = '2025-01-15T12:00:00.000Z';
+    const add = await request(app)
+      .post(`/api/repos/${REPO.id}/notices`)
+      .send({ body: 'restored note', created_at: pastDate });
+    expect(add.body.ok).toBe(true);
+
+    const list = await request(app).get(`/api/repos/${REPO.id}/notices`);
+    const restored = list.body.notices.find((n) => n.body === 'restored note');
+    expect(restored.created_at).toBe(pastDate);
+  });
+});
+
+describe('POST /api/repos/:id/state', () => {
+  it('restores priority_set_at and checked_at and reflects them in the payload', async () => {
+    const anchor = '2026-05-01T00:00:00.000Z';
+    const checked = '2026-05-02T08:00:00.000Z';
+
+    const res = await request(app)
+      .post(`/api/repos/${REPO.id}/state`)
+      .send({ priority_set_at: anchor, checked_at: checked });
+    expect(res.body).toEqual({ ok: true });
+
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.priority_set_at).toBe(anchor);
+    expect(repo.checked_at).toBe(checked);
+  });
+
+  it('accepts null values (clears the schedule, same as /clear)', async () => {
+    const res = await request(app)
+      .post(`/api/repos/${REPO.id}/state`)
+      .send({ priority_set_at: null, checked_at: null });
+    expect(res.body).toEqual({ ok: true });
+
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.priority_set_at).toBeNull();
+    expect(repo.checked_at).toBeNull();
   });
 });
 

@@ -35,11 +35,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ignored }),
     }).then(json),
-  addNotice: (id, body) =>
+  addNotice: (id, body, createdAt) =>
     fetch(`/api/repos/${id}/notices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, created_at: createdAt }),
+    }).then(json),
+  restoreState: (id, prioritySetAt, checkedAt) =>
+    fetch(`/api/repos/${id}/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority_set_at: prioritySetAt, checked_at: checkedAt }),
     }).then(json),
   repoNotices: (id) => fetch(`/api/repos/${id}/notices`).then(json),
   allNotices: (sort = 'date', dir = 'desc') =>

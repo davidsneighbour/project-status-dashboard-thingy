@@ -17,14 +17,19 @@ vi.mock('./api.js', () => ({
     addNotice: vi.fn(),
     addTag: vi.fn(),
     removeTag: vi.fn(),
+    restoreState: vi.fn(),
+    allNotices: vi.fn(),
+    deleteNotice: vi.fn(),
   },
 }));
 
-const card = (id, name) => ({
+const card = (id, name, extra = {}) => ({
   id, name, full_name: `me/${name}`, html_url: `https://x/${name}`, description: '',
   private: false, archived: false, fork: false, language: 'JS',
   pushed_at: '2026-06-01T00:00:00.000Z', checkedAgeDays: 0, dueInDays: 7,
   needsCheckToday: false, column: 'day-0', position: id, tags: [], priority: null,
+  priority_set_at: null, checked_at: null,
+  ...extra,
 });
 
 const payload = {
@@ -83,5 +88,79 @@ describe('toast + undo for ignore', () => {
     await screen.findByText('Ignored alpha');
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
     expect(screen.queryByText('Ignored alpha')).not.toBeInTheDocument();
+  });
+});
+
+describe('toast + undo for clear-check', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    api.list.mockResolvedValue({
+      ...payload,
+      repos: [
+        card(1, 'alpha', {
+          priority_set_at: '2026-05-20T00:00:00.000Z',
+          checked_at: '2026-05-20T08:00:00.000Z',
+        }),
+        card(2, 'beta'),
+      ],
+    });
+    api.clearSchedule.mockResolvedValue({ ok: true });
+    api.restoreState.mockResolvedValue({ ok: true });
+  });
+
+  it('shows "Check cleared" toast and undo calls restoreState with the snapshot', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open repository settings' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear check date' }));
+
+    expect(await screen.findByText('Check cleared')).toBeInTheDocument();
+    await waitFor(() => expect(api.clearSchedule).toHaveBeenCalledWith(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.restoreState).toHaveBeenCalledWith(
+        1,
+        '2026-05-20T00:00:00.000Z',
+        '2026-05-20T08:00:00.000Z'
+      )
+    );
+  });
+});
+
+describe('toast + undo for notice deletion', () => {
+  const notice = { id: 42, repo_id: 1, full_name: 'me/alpha', body: 'my note', created_at: '2026-04-01T00:00:00.000Z' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    api.list.mockResolvedValue(payload);
+    api.allNotices
+      .mockResolvedValueOnce({ notices: [notice] })
+      .mockResolvedValue({ notices: [] });
+    api.deleteNotice.mockResolvedValue({ ok: true });
+    api.addNotice.mockResolvedValue({ ok: true, id: 99 });
+  });
+
+  it('shows "Notice deleted" toast and undo re-posts with original created_at', async () => {
+    render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'notices' }));
+    expect(await screen.findByText('my note')).toBeInTheDocument();
+
+    // Two-step delete: arm, then confirm.
+    fireEvent.click(screen.getByRole('button', { name: 'Delete notice' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('Notice deleted')).toBeInTheDocument();
+    await waitFor(() => expect(api.deleteNotice).toHaveBeenCalledWith(42));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(api.addNotice).toHaveBeenCalledWith(1, 'my note', '2026-04-01T00:00:00.000Z')
+    );
   });
 });

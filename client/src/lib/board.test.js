@@ -170,6 +170,24 @@ describe('sortColumnRepos', () => {
         sortColumnRepos(repos, 'stars', 'desc');
         expect(repos.map((r) => r.id)).toEqual(before);
     });
+
+    it('uses name as tiebreaker when primary sort values are equal', () => {
+        const tied = [
+            { id: 1, name: 'zebra', stargazers_count: 5 },
+            { id: 2, name: 'apple', stargazers_count: 5 },
+        ];
+        expect(sortColumnRepos(tied, 'stars').map((r) => r.id)).toEqual([2, 1]);
+    });
+
+    it('handles repos with missing name / owner / stargazers (|| fallbacks)', () => {
+        const sparse = [
+            { id: 1, name: null, owner: null, stargazers_count: null },
+            { id: 2, name: 'z', owner: 'z', stargazers_count: 1 },
+        ];
+        expect(() => sortColumnRepos(sparse, 'name')).not.toThrow();
+        expect(() => sortColumnRepos(sparse, 'owner')).not.toThrow();
+        expect(() => sortColumnRepos(sparse, 'stars')).not.toThrow();
+    });
 });
 
 describe('sortNotices', () => {
@@ -280,6 +298,17 @@ describe('groupRepos', () => {
             { id: 2, name: 'a', column: 'day-0', position: 0 },
         ];
         expect(groupRepos(inCol, columns, 'bogus')['day-0'].map((r) => r.id)).toEqual([2, 1]);
+    });
+
+    it('places a repo in day-0 when its column is not in the day grid', () => {
+        const columns = [{ key: 'day-0' }, { key: 'day-1' }];
+        const repos = [
+            { id: 1, name: 'a', column: 'day-99', position: 0 },
+            { id: 2, name: 'b', column: 'day-0', position: 1 },
+        ];
+        const grouped = groupRepos(repos, columns);
+        expect(grouped['day-0'].map((r) => r.id)).toContain(1);
+        expect(grouped['day-99']).toBeUndefined();
     });
 });
 

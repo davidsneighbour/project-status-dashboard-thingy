@@ -7,7 +7,7 @@ import { cx } from '../lib/constants.js';
 import { timeAgo } from '../lib/date.js';
 import { sortNotices } from '../lib/board.js';
 
-export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged }) {
+export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged, onDeleted }) {
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('date');
@@ -37,9 +37,11 @@ export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged 
 
   const removeNotice = async (noticeId) => {
     setConfirmId(null);
+    const notice = notices.find((n) => n.id === noticeId);
     await api.deleteNotice(noticeId);
     await reload();
     onChanged?.();
+    onDeleted?.(notice);
   };
 
   return createPortal(

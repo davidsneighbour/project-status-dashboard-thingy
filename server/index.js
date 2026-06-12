@@ -98,6 +98,7 @@ function buildPayload() {
       ...r,
       priority: s.priority,
       priority_set_at: s.priority_set_at,
+      checked_at: s.checked_at ?? null,
       inactivity_days: s.inactivity_days,
       effective_inactivity_days: s.inactivity_days ?? DEFAULT_INACTIVITY_DAYS,
       position: s.position ?? 0,
@@ -142,6 +143,15 @@ const clearScheduleStmt = db.prepare(`
     checked_at = NULL,
     updated_at = excluded.updated_at
 `);
+// Restores a previously-snapshotted priority_set_at + checked_at (undo clear-check).
+const restoreScheduleStmt = db.prepare(`
+  INSERT INTO repo_state (repo_id, full_name, priority_set_at, checked_at, updated_at)
+  VALUES (@id, @full_name, @priority_set_at, @checked_at, @now)
+  ON CONFLICT(repo_id) DO UPDATE SET
+    priority_set_at = excluded.priority_set_at,
+    checked_at = excluded.checked_at,
+    updated_at = excluded.updated_at
+`);
 const getInactivityStmt = db.prepare('SELECT inactivity_days FROM repo_state WHERE repo_id = ?');
 const touchStmt = db.prepare(`UPDATE repo_state SET priority_set_at = ?, checked_at = ?, updated_at = ? WHERE repo_id = ?`);
 const inactivityStmt = db.prepare(`
@@ -161,7 +171,7 @@ const setIgnoredStmt = db.prepare(`
 `);
 const addNoticeStmt = db.prepare(`
   INSERT INTO repo_notice (repo_id, full_name, body, created_at)
-  VALUES (@id, @full_name, @body, @now)
+  VALUES (@id, @full_name, @body, @created_at)
 `);
 const noticesForRepoStmt = db.prepare(
   `SELECT id, repo_id, full_name, body, created_at FROM repo_notice WHERE repo_id = ? ORDER BY id DESC`
@@ -246,6 +256,16 @@ app.post('/api/repos/:id/clear', (req, res) => {
   res.json({ ok: true });
 });
 
+// Restore a snapshotted scheduling state (priority_set_at + checked_at).
+// Used by the client's undo toast after "Clear check date".
+app.post('/api/repos/:id/state', (req, res) => {
+  const id = Number(req.params.id);
+  const { priority_set_at = null, checked_at = null } = req.body || {};
+  const now = new Date().toISOString();
+  restoreScheduleStmt.run({ id, full_name: findRepo(id)?.full_name ?? null, priority_set_at, checked_at, now });
+  res.json({ ok: true });
+});
+
 app.post('/api/repos/:id/check', (req, res) => {
   const id = Number(req.params.id);
   let { daysAgo } = req.body || {};
@@ -320,11 +340,13 @@ app.post('/api/repos/:id/notices', (req, res) => {
   const id = Number(req.params.id);
   const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
   if (!body) return res.status(400).json({ error: 'body must be a non-empty string' });
+  const now = new Date().toISOString();
+  const created_at = typeof req.body?.created_at === 'string' ? req.body.created_at : now;
   const info = addNoticeStmt.run({
     id,
     full_name: findRepo(id)?.full_name ?? null,
     body,
-    now: new Date().toISOString(),
+    created_at,
   });
   res.json({ ok: true, id: info.lastInsertRowid });
 });
