@@ -17,18 +17,42 @@ import { buildReport, toMarkdown, toCsv, REPORT_KINDS } from './report.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0';
-const DEFAULT_INACTIVITY_DAYS = Number(process.env.DEFAULT_INACTIVITY_DAYS || 7);
-// The hour (0-23, local time) at which the board rolls a new day over — i.e.
-// when "tomorrow" becomes "today". Defaults to 04:00 so the small hours still
-// belong to the previous review day.
+// Env-var defaults (used as fallback when no DB setting overrides them).
+const DEFAULT_INACTIVITY_DAYS_ENV = Number(process.env.DEFAULT_INACTIVITY_DAYS || 7);
 const DAY_ROLLOVER_HOUR = Math.min(23, Math.max(0, Math.floor(Number(process.env.DAY_ROLLOVER_HOUR ?? 4)) || 0));
 const SYNC_ON_STARTUP = process.env.SYNC_ON_STARTUP !== 'false';
 const SYNC_AUTO = process.env.SYNC_AUTO !== 'false';
-const SYNC_INTERVAL_MINUTES = Math.max(1, Number(process.env.SYNC_INTERVAL_MINUTES || 60));
+const SYNC_INTERVAL_MINUTES_ENV = Math.max(1, Number(process.env.SYNC_INTERVAL_MINUTES || 60));
 const ENRICH_METADATA = (process.env.ENRICH_METADATA || '').toLowerCase() === 'true';
 
 const app = express();
 app.use(express.json());
+
+// ---- Runtime settings (DB overrides for .env values) -----------------------
+const settingGetStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+const settingUpsertStmt = db.prepare(`
+  INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+`);
+
+function getSetting(key) {
+  return settingGetStmt.get(key)?.value ?? null;
+}
+
+function getEffectiveInactivityDays() {
+  const v = Number(getSetting('default_inactivity_days') ?? DEFAULT_INACTIVITY_DAYS_ENV);
+  return Number.isFinite(v) && v >= 1 ? v : DEFAULT_INACTIVITY_DAYS_ENV;
+}
+
+function getEffectiveSyncIntervalMinutes() {
+  const v = Number(getSetting('sync_interval_minutes') ?? SYNC_INTERVAL_MINUTES_ENV);
+  return Number.isFinite(v) && v >= 1 ? v : SYNC_INTERVAL_MINUTES_ENV;
+}
+
+function getEffectiveOwners() {
+  const stored = getSetting('github_owners');
+  return stored !== null ? parseOwners(stored) : parseOwners(process.env.GITHUB_OWNERS);
+}
 
 // ---- GitHub repo cache + optional enrichment cache ------------------------
 let repoCache = [];
@@ -49,7 +73,7 @@ let syncing = false; // true while a GitHub fetch is in flight
 async function refreshRepos() {
   syncing = true;
   try {
-    const fetched = await fetchAllRepos();
+    const fetched = await fetchAllRepos(getEffectiveOwners());
     // Only swap the cache in once the fetch has fully succeeded, so an in-flight
     // sync never momentarily empties the board.
     repoCache = fetched;
@@ -137,6 +161,7 @@ function buildPayload() {
   return repoCache.map((r) => {
     const s = byId.get(r.id) || { priority: null, priority_set_at: null, inactivity_days: null, position: 0, ignored: 0, snooze_until: null };
     const enrich = enrichCache.get(r.id) ?? {};
+    const defaultInactivityDays = getEffectiveInactivityDays();
     return {
       ...r,
       ...enrich,
@@ -144,7 +169,7 @@ function buildPayload() {
       priority_set_at: s.priority_set_at,
       checked_at: s.checked_at ?? null,
       inactivity_days: s.inactivity_days,
-      effective_inactivity_days: s.inactivity_days ?? DEFAULT_INACTIVITY_DAYS,
+      effective_inactivity_days: s.inactivity_days ?? defaultInactivityDays,
       position: s.position ?? 0,
       ignored: Boolean(s.ignored),
       snooze_until: s.snooze_until ?? null,
@@ -152,7 +177,7 @@ function buildPayload() {
       latest_notice: latestByRepo.get(r.id) ?? null,
       tags: tagsByRepo.get(r.id) ?? [],
       flags: flagsByRepo.get(r.id) ?? [],
-      ...effectiveState(s, DEFAULT_INACTIVITY_DAYS, Date.now(), DAY_ROLLOVER_HOUR),
+      ...effectiveState(s, defaultInactivityDays, Date.now(), DAY_ROLLOVER_HOUR),
     };
   });
 }
@@ -279,8 +304,8 @@ app.get('/api/repos', (req, res) => {
     syncing,
     lastFetch,
     lastError,
-    defaultInactivityDays: DEFAULT_INACTIVITY_DAYS,
-    owners: parseOwners(process.env.GITHUB_OWNERS),
+    defaultInactivityDays: getEffectiveInactivityDays(),
+    owners: getEffectiveOwners(),
     sourceWarnings: [...sourceStatus.warnings],
     tokenPresent: authStatus.present || Boolean(process.env.GITHUB_TOKEN),
     authSource: authStatus.source,
@@ -342,7 +367,7 @@ app.post('/api/repos/:id/check', (req, res) => {
   // The card lands in a future column iff daysAgo is below its review interval.
   // That means "I reviewed it now, resurface later" → stamp the real check time.
   // Otherwise it lands in Today ("make this due") → leave checked_at untouched.
-  const effectiveInactivity = getInactivityStmt.get(id)?.inactivity_days ?? DEFAULT_INACTIVITY_DAYS;
+  const effectiveInactivity = getInactivityStmt.get(id)?.inactivity_days ?? getEffectiveInactivityDays();
   const isReview = daysAgo < effectiveInactivity;
 
   setCheckedStmt.run({
@@ -515,6 +540,82 @@ app.get('/api/reports/:kind', (req, res) => {
   res.json(report);
 });
 
+// ---- App settings ----------------------------------------------------------
+// Read-only: env defaults + any DB overrides in camelCase.
+app.get('/api/settings', (req, res) => {
+  res.json({
+    settings: {
+      defaultInactivityDays: getEffectiveInactivityDays(),
+      syncIntervalMinutes: getEffectiveSyncIntervalMinutes(),
+      githubOwners: (getEffectiveOwners()).join(', '),
+    },
+    defaults: {
+      defaultInactivityDays: DEFAULT_INACTIVITY_DAYS_ENV,
+      syncIntervalMinutes: SYNC_INTERVAL_MINUTES_ENV,
+      githubOwners: parseOwners(process.env.GITHUB_OWNERS).join(', '),
+    },
+  });
+});
+
+let syncIntervalHandle = null;
+
+function restartSyncInterval(minutes) {
+  /* v8 ignore next */
+  if (syncIntervalHandle) clearInterval(syncIntervalHandle);
+  /* v8 ignore next */
+  if (!SYNC_AUTO || minutes < 1) return;
+  /* v8 ignore next */
+  syncIntervalHandle = setInterval(() => {
+    /* v8 ignore next */
+    if (queueRefresh()) console.log('  [auto-sync] Background GitHub sync started.');
+  }, minutes * 60 * 1000);
+}
+
+const ALLOWED_SETTING_KEYS = new Set(['defaultInactivityDays', 'syncIntervalMinutes', 'githubOwners']);
+
+app.put('/api/settings', (req, res) => {
+  const body = req.body || {};
+  const errors = [];
+
+  if ('defaultInactivityDays' in body) {
+    const v = Number(body.defaultInactivityDays);
+    if (!Number.isFinite(v) || v < 1 || v > 365) {
+      errors.push('defaultInactivityDays must be an integer between 1 and 365');
+    }
+  }
+  if ('syncIntervalMinutes' in body) {
+    const v = Number(body.syncIntervalMinutes);
+    if (!Number.isFinite(v) || v < 1 || v > 1440) {
+      errors.push('syncIntervalMinutes must be an integer between 1 and 1440');
+    }
+  }
+  if (errors.length) return res.status(400).json({ errors });
+
+  const now = new Date().toISOString();
+  const prevOwners = getEffectiveOwners().join(',');
+
+  for (const key of ALLOWED_SETTING_KEYS) {
+    if (!(key in body)) continue;
+    let dbKey;
+    if (key === 'defaultInactivityDays') dbKey = 'default_inactivity_days';
+    else if (key === 'syncIntervalMinutes') dbKey = 'sync_interval_minutes';
+    else dbKey = 'github_owners';
+    settingUpsertStmt.run(dbKey, String(body[key] ?? ''), now);
+  }
+
+  // Restart the auto-sync loop if the interval changed.
+  if ('syncIntervalMinutes' in body) {
+    restartSyncInterval(getEffectiveSyncIntervalMinutes());
+  }
+
+  // Trigger a re-sync if owners changed.
+  const ownersChanged = 'githubOwners' in body &&
+    parseOwners(body.githubOwners).join(',') !== prevOwners;
+  if (ownersChanged) queueRefresh();
+
+  res.json({ ok: true, resyncing: ownersChanged });
+});
+
 // ---- User preferences ------------------------------------------------------
 // Stores view/display prefs (density, sort, view, groupBy, fields, filters,
 // showIgnored) as a single JSON blob keyed to 'board'. The client reads this
@@ -669,9 +770,7 @@ function startServer() {
     }
 
     if (SYNC_AUTO) {
-      setInterval(() => {
-        if (queueRefresh()) console.log('  [auto-sync] Background GitHub sync started.');
-      }, SYNC_INTERVAL_MINUTES * 60 * 1000);
+      restartSyncInterval(getEffectiveSyncIntervalMinutes());
     }
   });
 }

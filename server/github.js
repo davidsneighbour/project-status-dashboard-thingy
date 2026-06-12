@@ -424,7 +424,7 @@ export function enrichRepos(repos, token) {
  * @throws {Error} If no token is available, the token is invalid (401), or the
  *   rate limit is exhausted (403 with `remaining=0`).
  */
-export async function fetchAllRepos() {
+export async function fetchAllRepos(ownersOverride = undefined) {
   const { token, source } = resolveToken();
   authStatus.source = source;
   authStatus.present = Boolean(token);
@@ -440,7 +440,9 @@ export async function fetchAllRepos() {
   sourceStatus.owners = [];
   sourceStatus.warnings = [];
 
-  const owners = parseOwners(process.env.GITHUB_OWNERS);
+  const owners = ownersOverride !== undefined
+    ? (Array.isArray(ownersOverride) ? ownersOverride : parseOwners(String(ownersOverride ?? '')))
+    : parseOwners(process.env.GITHUB_OWNERS);
 
   let raw;
   if (owners.length === 0) {

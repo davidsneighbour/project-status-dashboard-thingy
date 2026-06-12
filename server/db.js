@@ -108,4 +108,14 @@ db.exec(`
   );
 `);
 
+// Key/value store for runtime settings that override .env defaults.
+// Keys: default_inactivity_days, sync_interval_minutes, github_owners.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
 export default db;

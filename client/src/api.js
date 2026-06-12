@@ -72,6 +72,13 @@ export const api = {
       body: JSON.stringify({ flag }),
     }).then(json),
   removeFlag: (id, flag) => fetch(`/api/repos/${id}/flags/${encodeURIComponent(flag)}`, { method: 'DELETE' }).then(json),
+  getSettings: () => fetch('/api/settings').then(json),
+  putSettings: (settings) =>
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }).then(json),
   getPrefs: () => fetch('/api/prefs').then(json),
   putPrefs: (prefs) =>
     fetch('/api/prefs', {

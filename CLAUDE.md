@@ -147,12 +147,14 @@ persisted); header shows sync status and GitHub API remaining/limit.
 | DELETE | `/api/tags/:tag` | Delete a tag from every repo that carries it |
 | GET | `/api/backup` | Export all triage state (repo_state/notice/tag) as JSON |
 | POST | `/api/restore` | Replace all triage state from a backup payload (transactional) |
+| GET | `/api/settings` | Read effective settings (env defaults + DB overrides: defaultInactivityDays, syncIntervalMinutes, githubOwners) |
+| PUT | `/api/settings` | Write runtime setting overrides; unknown keys stripped; owners change triggers re-sync |
 | GET | `/api/prefs` | Read persisted view/display prefs blob (density, sort, view, groupBy, fields, filters, showIgnored) |
 | PUT | `/api/prefs` | Write view/display prefs blob (unknown keys stripped) |
 
 ## Implementation constraints
 
 * No TypeScript.
-* Tailwind class names must remain static strings.
+* Tailwind class names are static strings (no dynamic construction).
 * Keep the test suites green; add/adjust tests alongside behaviour changes.
 * Do not cache GitHub repo list to disk.

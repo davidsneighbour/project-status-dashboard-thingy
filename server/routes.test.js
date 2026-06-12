@@ -563,6 +563,55 @@ describe('POST /api/repos/:id/snooze', () => {
   });
 });
 
+describe('GET /api/settings + PUT /api/settings', () => {
+  it('returns env defaults when no DB overrides exist', async () => {
+    const res = await request(app).get('/api/settings');
+    expect(res.status).toBe(200);
+    expect(res.body.settings).toEqual(expect.objectContaining({
+      defaultInactivityDays: 7,
+      syncIntervalMinutes: expect.any(Number),
+      githubOwners: expect.any(String),
+    }));
+    expect(res.body.defaults).toEqual(expect.objectContaining({ defaultInactivityDays: 7 }));
+  });
+
+  it('PUT stores overrides and GET reflects them', async () => {
+    const put = await request(app).put('/api/settings').send({ defaultInactivityDays: 14, syncIntervalMinutes: 30 });
+    expect(put.status).toBe(200);
+    expect(put.body.ok).toBe(true);
+
+    const get = await request(app).get('/api/settings');
+    expect(get.body.settings.defaultInactivityDays).toBe(14);
+    expect(get.body.settings.syncIntervalMinutes).toBe(30);
+  });
+
+  it('PUT rejects out-of-range defaultInactivityDays', async () => {
+    const res = await request(app).put('/api/settings').send({ defaultInactivityDays: 0 });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(expect.arrayContaining([expect.stringContaining('defaultInactivityDays')]));
+  });
+
+  it('PUT rejects out-of-range syncIntervalMinutes', async () => {
+    const res = await request(app).put('/api/settings').send({ syncIntervalMinutes: 9999 });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(expect.arrayContaining([expect.stringContaining('syncIntervalMinutes')]));
+  });
+
+  it('PUT with changed owners reports resyncing: true', async () => {
+    await request(app).put('/api/settings').send({ githubOwners: 'some-org' });
+    const res = await request(app).put('/api/settings').send({ githubOwners: 'other-org' });
+    expect(res.body.resyncing).toBe(true);
+  });
+
+  it('effective inactivity days are reflected in GET /api/repos after override', async () => {
+    await request(app).put('/api/settings').send({ defaultInactivityDays: 21 });
+    const res = await request(app).get('/api/repos');
+    expect(res.body.defaultInactivityDays).toBe(21);
+    // Reset
+    await request(app).put('/api/settings').send({ defaultInactivityDays: 7 });
+  });
+});
+
 describe('GET /api/prefs + PUT /api/prefs', () => {
   it('returns null prefs when nothing has been saved yet', async () => {
     const res = await request(app).get('/api/prefs');

@@ -14,6 +14,7 @@ import { Toast } from './components/Toast.jsx';
 import { HelpDialog } from './components/HelpDialog.jsx';
 import { NoticesDialog } from './components/NoticesDialog.jsx';
 import { ReportsDialog } from './components/ReportsDialog.jsx';
+import { SettingsDialog } from './components/SettingsDialog.jsx';
 import { TagFilter } from './components/TagFilter.jsx';
 import { PriorityFilter } from './components/PriorityFilter.jsx';
 import { FieldsMenu } from './components/FieldsMenu.jsx';
@@ -34,6 +35,7 @@ export default function App() {
   const MoreIcon = ICON.more;
   const ListIcon = ICON.list;
   const BoardIcon = ICON.board;
+  const SettingsIcon = ICON.settings;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -56,6 +58,8 @@ export default function App() {
   // Independent priority filter: a list of selected levels (1|2|3, 0 = none).
   const [priorityFilter, setPriorityFilter] = useState([]);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [remoteSettings, setRemoteSettings] = useState(null);
   // Mobile overflow: the collapsed toolbar controls live in a bottom action sheet.
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -303,6 +307,7 @@ export default function App() {
         setHelpOpen(false);
         setNoticesScope(null);
         setReportsOpen(false);
+        setSettingsOpen(false);
       }
     };
 
@@ -321,6 +326,19 @@ export default function App() {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const openSettings = () => {
+    api.getSettings().then((d) => setRemoteSettings(d)).catch(() => {});
+    setSettingsOpen(true);
+  };
+
+  const saveSettings = async (values) => {
+    await api.putSettings(values);
+    const d = await api.getSettings();
+    setRemoteSettings(d);
+    setSettingsOpen(false);
+    await load();
   };
 
   // Card-facing handlers are wrapped in useCallback so their identity is stable
@@ -717,6 +735,14 @@ export default function App() {
           )}
           {data.lastFetch && <span className="text-[11px] text-neutral-600">synced {timeAgo(data.lastFetch)}</span>}
           <button
+            onClick={openSettings}
+            className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+            aria-label="Open settings"
+          >
+            <SettingsIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            Settings
+          </button>
+          <button
             onClick={() => setHelpOpen(true)}
             className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
             aria-label="Open help"
@@ -852,6 +878,14 @@ export default function App() {
         )}
       </main>
 
+      {settingsOpen && (
+        <SettingsDialog
+          settings={remoteSettings?.settings}
+          defaults={remoteSettings?.defaults}
+          onSave={saveSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       {reportsOpen && <ReportsDialog onClose={() => setReportsOpen(false)} />}
       {noticesScope != null && (

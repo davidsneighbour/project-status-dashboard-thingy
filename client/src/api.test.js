@@ -95,6 +95,27 @@ describe('api wrapper contract', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/reports/stale?format=md&days=90');
     });
 
+    it('fetches settings with GET /api/settings', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ settings: {}, defaults: {} }) });
+
+        await api.getSettings();
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/settings');
+    });
+
+    it('writes settings with PUT /api/settings', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true }) });
+        const payload = { defaultInactivityDays: 14, syncIntervalMinutes: 30, githubOwners: 'myorg' };
+
+        await api.putSettings(payload);
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    });
+
     it('fetches prefs with GET /api/prefs', async () => {
         const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ prefs: null }) });
 
