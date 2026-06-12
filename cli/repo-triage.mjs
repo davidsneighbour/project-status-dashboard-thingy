@@ -181,7 +181,7 @@ Commands:
   report <kind> [--format md|csv|json] [--days N]
                               Print a report. Kinds: summary, due,
                               never-reviewed, stale, owners, languages,
-                              archived, active
+                              archived, active, weekly
   backup                      Print all local triage state as JSON (redirect it)
   restore  <file.json>        Replace all triage state from a backup file
   help

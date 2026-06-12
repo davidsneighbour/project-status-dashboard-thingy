@@ -2,7 +2,7 @@
 // report normalises to a tabular shape { kind, title, generatedAt, columns,
 // rows } so the json/markdown/csv formatters below stay generic.
 
-export const REPORT_KINDS = ['summary', 'due', 'never-reviewed', 'stale', 'owners', 'languages', 'archived', 'active'];
+export const REPORT_KINDS = ['summary', 'due', 'never-reviewed', 'stale', 'owners', 'languages', 'archived', 'active', 'weekly'];
 
 const tagStr = (r) => (r.tags || []).map((t) => `#${t}`).join(' ');
 const dateOnly = (iso) => (iso ? String(iso).slice(0, 10) : '');
@@ -89,12 +89,28 @@ export function buildReport(kind, repos, opts = {}) {
       return report('Open issues / PRs', ['repo', 'owner', 'open', 'stars'], list.map((r) => [r.full_name, r.owner || '', r.open_issues_count || 0, r.stargazers_count || 0]));
     }
 
+    case 'weekly': {
+      const staleDays = Math.max(0, Number(opts.days ?? 90) || 0);
+      const sections = [
+        buildReport('summary', repos, { now: generatedAt }),
+        buildReport('due', repos, { now: generatedAt }),
+        buildReport('never-reviewed', repos, { now: generatedAt }),
+        buildReport('stale', repos, { now: generatedAt, days: staleDays }),
+        buildReport('owners', repos, { now: generatedAt }),
+      ];
+      return { kind: 'weekly', title: 'Weekly Triage Digest', generatedAt, sections };
+    }
+
     default:
       throw new Error(`unknown report "${kind}". Available: ${REPORT_KINDS.join(', ')}`);
   }
 }
 
 export function toMarkdown(report) {
+  if (report.sections) {
+    const header = `# ${report.title}\n\n_${report.generatedAt}_\n`;
+    return header + '\n' + report.sections.map(toMarkdown).join('\n');
+  }
   const esc = (v) => String(v ?? '').replace(/\|/g, '\\|');
   const head = `## ${report.title}\n\n_${report.generatedAt}_\n`;
   if (report.rows.length === 0) return `${head}\n_No matching repositories._\n`;
@@ -105,6 +121,9 @@ export function toMarkdown(report) {
 }
 
 export function toCsv(report) {
+  if (report.sections) {
+    return report.sections.map((s) => `# ${s.title}\n${toCsv(s)}`).join('\n');
+  }
   const esc = (v) => {
     const s = String(v ?? '');
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

@@ -112,12 +112,39 @@ describe('buildReport', () => {
     expect(buildReport('languages', tied, { now: NOW }).rows.map((r) => r[0])).toEqual(['Elixir', 'Rust']);
   });
 
+  it('weekly composes sections for due / never-reviewed / stale / owners / summary', () => {
+    const r = buildReport('weekly', REPOS, { now: NOW });
+    expect(r.kind).toBe('weekly');
+    expect(r.title).toBe('Weekly Triage Digest');
+    expect(r.generatedAt).toBe(NOW);
+    expect(Array.isArray(r.sections)).toBe(true);
+    const kinds = r.sections.map((s) => s.kind);
+    expect(kinds).toContain('summary');
+    expect(kinds).toContain('due');
+    expect(kinds).toContain('never-reviewed');
+    expect(kinds).toContain('stale');
+    expect(kinds).toContain('owners');
+  });
+
+  it('weekly passes the days option to the stale section', () => {
+    const r = buildReport('weekly', REPOS, { now: NOW, days: 30 });
+    const stale = r.sections.find((s) => s.kind === 'stale');
+    expect(stale.title).toMatch(/30d/);
+  });
+
+  it('weekly defaults stale window to 90 days', () => {
+    const r = buildReport('weekly', REPOS, { now: NOW });
+    const stale = r.sections.find((s) => s.kind === 'stale');
+    expect(stale.title).toMatch(/90d/);
+  });
+
   it('throws on an unknown kind', () => {
     expect(() => buildReport('nope', REPOS)).toThrow(/unknown report/);
   });
 
   it('exposes the kind list', () => {
     expect(REPORT_KINDS).toContain('summary');
+    expect(REPORT_KINDS).toContain('weekly');
   });
 });
 
@@ -137,5 +164,23 @@ describe('formatters', () => {
   it('renders csv with quoting for special characters', () => {
     const csv = toCsv({ ...report, rows: [['a,b', 'q"x']] });
     expect(csv).toContain('"a,b","q""x"');
+  });
+
+  it('toMarkdown renders weekly as a h1 header followed by each section', () => {
+    const weekly = buildReport('weekly', REPOS, { now: NOW });
+    const md = toMarkdown(weekly);
+    expect(md).toMatch(/^# Weekly Triage Digest/);
+    expect(md).toContain('## Summary');
+    expect(md).toContain('## Due today');
+    expect(md).toContain('## Never reviewed');
+    expect(md).toContain('## Per owner');
+  });
+
+  it('toCsv renders weekly by concatenating sections with headings', () => {
+    const weekly = buildReport('weekly', REPOS, { now: NOW });
+    const csv = toCsv(weekly);
+    expect(csv).toContain('# Summary');
+    expect(csv).toContain('# Due today');
+    expect(csv).toContain('metric,value');
   });
 });
