@@ -59,6 +59,13 @@ export const api = {
     }).then(json),
   removeTag: (id, tag) => fetch(`/api/repos/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }).then(json),
   deleteTag: (tag) => fetch(`/api/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }).then(json),
+  addFlag: (id, flag) =>
+    fetch(`/api/repos/${id}/flags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flag }),
+    }).then(json),
+  removeFlag: (id, flag) => fetch(`/api/repos/${id}/flags/${encodeURIComponent(flag)}`, { method: 'DELETE' }).then(json),
   reportKinds: () => fetch('/api/reports').then(json),
   report: (kind, { format = 'json', days } = {}) => {
     const qs = new URLSearchParams({ format });

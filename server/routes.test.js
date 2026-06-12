@@ -367,6 +367,35 @@ describe('tags', () => {
   });
 });
 
+describe('flags', () => {
+  it('rejects an empty flag with 400', async () => {
+    const res = await request(app).post(`/api/repos/${REPO.id}/flags`).send({ flag: '   ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/non-empty/);
+  });
+
+  it('adds normalised flags, dedupes, and exposes them on the board payload', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/flags`).send({ flag: '  Pinned  ' });
+    await request(app).post(`/api/repos/${REPO.id}/flags`).send({ flag: 'pinned' }); // dup
+    await request(app).post(`/api/repos/${REPO.id}/flags`).send({ flag: 'muted' });
+
+    const list = await request(app).get(`/api/repos/${REPO.id}/flags`);
+    expect(list.body.flags).toEqual(['muted', 'pinned']);
+
+    const board = await request(app).get('/api/repos');
+    const repo = board.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.flags).toEqual(['muted', 'pinned']);
+  });
+
+  it('removes a flag', async () => {
+    const del = await request(app).delete(`/api/repos/${REPO.id}/flags/pinned`);
+    expect(del.body).toEqual({ ok: true });
+
+    const list = await request(app).get(`/api/repos/${REPO.id}/flags`);
+    expect(list.body.flags).toEqual(['muted']);
+  });
+});
+
 describe('reports', () => {
   it('lists available report kinds', async () => {
     const res = await request(app).get('/api/reports');
@@ -435,6 +464,7 @@ describe('backup & restore (runs last — mutates shared triage state)', () => {
     await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: 1 });
     await request(app).post(`/api/repos/${REPO.id}/tags`).send({ tag: 'backup-me' });
     await request(app).post(`/api/repos/${REPO.id}/notices`).send({ body: 'remember this' });
+    await request(app).post(`/api/repos/${REPO.id}/flags`).send({ flag: 'pinned' });
 
     const backup = await request(app).get('/api/backup');
     expect(backup.status).toBe(200);
@@ -444,9 +474,11 @@ describe('backup & restore (runs last — mutates shared triage state)', () => {
         repo_state: expect.any(Array),
         repo_notice: expect.any(Array),
         repo_tag: expect.any(Array),
+        repo_flag: expect.any(Array),
       })
     );
     expect(backup.body.repo_tag.some((t) => t.tag === 'backup-me')).toBe(true);
+    expect(backup.body.repo_flag.some((f) => f.flag === 'pinned')).toBe(true);
 
     const restore = await request(app).post('/api/restore').send(backup.body);
     expect(restore.status).toBe(200);
@@ -455,6 +487,7 @@ describe('backup & restore (runs last — mutates shared triage state)', () => {
     const after = await request(app).get('/api/repos');
     const repo = after.body.repos.find((r) => r.id === REPO.id);
     expect(repo.tags).toContain('backup-me');
+    expect(repo.flags).toContain('pinned');
     expect(repo.priority).toBe(1);
   });
 
@@ -479,7 +512,7 @@ describe('backup & restore (runs last — mutates shared triage state)', () => {
       ],
     });
     expect(res.status).toBe(200);
-    expect(res.body.restored).toEqual({ repo_state: 2, repo_notice: 2, repo_tag: 2 });
+    expect(res.body.restored).toEqual({ repo_state: 2, repo_notice: 2, repo_tag: 2, repo_flag: 0 });
 
     const board = await request(app).get('/api/repos');
     const repo = board.body.repos.find((r) => r.id === REPO.id);

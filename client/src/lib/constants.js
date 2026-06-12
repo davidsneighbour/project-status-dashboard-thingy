@@ -99,6 +99,14 @@ export const FIELD_OPTIONS = [
 ];
 export const DEFAULT_FIELDS = Object.fromEntries(FIELD_OPTIONS.map((f) => [f.key, true]));
 
+// Well-known boolean flags surfaced as toggle buttons in the card menu.
+export const FLAG_NAMES = ['pinned', 'muted', 'needs-decision'];
+export const FLAG_META = {
+  pinned: { label: 'Pinned', emoji: '📌' },
+  muted: { label: 'Muted', emoji: '🔇' },
+  'needs-decision': { label: 'Needs decision', emoji: '❓' },
+};
+
 export const REPORT_LABELS = {
   summary: 'summary',
   due: 'due today',

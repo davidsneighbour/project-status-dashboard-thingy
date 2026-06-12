@@ -92,6 +92,14 @@ function buildPayload() {
     else tagsByRepo.set(t.repo_id, [t.tag]);
   }
 
+  const flagRows = db.prepare('SELECT repo_id, flag FROM repo_flag ORDER BY flag').all();
+  const flagsByRepo = new Map();
+  for (const f of flagRows) {
+    const list = flagsByRepo.get(f.repo_id);
+    if (list) list.push(f.flag);
+    else flagsByRepo.set(f.repo_id, [f.flag]);
+  }
+
   return repoCache.map((r) => {
     const s = byId.get(r.id) || { priority: null, priority_set_at: null, inactivity_days: null, position: 0, ignored: 0 };
     return {
@@ -106,6 +114,7 @@ function buildPayload() {
       notice_count: countByRepo.get(r.id) ?? 0,
       latest_notice: latestByRepo.get(r.id) ?? null,
       tags: tagsByRepo.get(r.id) ?? [],
+      flags: flagsByRepo.get(r.id) ?? [],
       ...effectiveState(s, DEFAULT_INACTIVITY_DAYS, Date.now(), DAY_ROLLOVER_HOUR),
     };
   });
@@ -185,6 +194,12 @@ const removeTagStmt = db.prepare('DELETE FROM repo_tag WHERE repo_id = ? AND tag
 const deleteTagEverywhereStmt = db.prepare('DELETE FROM repo_tag WHERE tag = ?');
 const tagsForRepoStmt = db.prepare('SELECT tag FROM repo_tag WHERE repo_id = ? ORDER BY tag');
 const allTagsStmt = db.prepare('SELECT tag, COUNT(*) AS count FROM repo_tag GROUP BY tag ORDER BY count DESC, tag ASC');
+const addFlagStmt = db.prepare(`
+  INSERT OR IGNORE INTO repo_flag (repo_id, full_name, flag, created_at)
+  VALUES (@id, @full_name, @flag, @now)
+`);
+const removeFlagStmt = db.prepare('DELETE FROM repo_flag WHERE repo_id = ? AND flag = ?');
+const flagsForRepoStmt = db.prepare('SELECT flag FROM repo_flag WHERE repo_id = ? ORDER BY flag');
 
 // Tags are normalised to a trimmed, lower-case, length-capped token.
 const normalizeTag = (raw) => (typeof raw === 'string' ? raw.trim().toLowerCase().slice(0, 50) : '');
@@ -400,6 +415,24 @@ app.delete('/api/tags/:tag', (req, res) => {
   res.json({ ok: true, removed: info.changes });
 });
 
+// ---- Flags -----------------------------------------------------------------
+app.get('/api/repos/:id/flags', (req, res) => {
+  res.json({ flags: flagsForRepoStmt.all(Number(req.params.id)).map((r) => r.flag) });
+});
+
+app.post('/api/repos/:id/flags', (req, res) => {
+  const id = Number(req.params.id);
+  const flag = normalizeTag(req.body?.flag);
+  if (!flag) return res.status(400).json({ error: 'flag must be a non-empty string' });
+  addFlagStmt.run({ id, full_name: findRepo(id)?.full_name ?? null, flag, now: new Date().toISOString() });
+  res.json({ ok: true, flag });
+});
+
+app.delete('/api/repos/:id/flags/:flag', (req, res) => {
+  removeFlagStmt.run(Number(req.params.id), normalizeTag(req.params.flag));
+  res.json({ ok: true });
+});
+
 // ---- Reports ---------------------------------------------------------------
 app.get('/api/reports', (req, res) => {
   res.json({ kinds: REPORT_KINDS });
@@ -430,6 +463,7 @@ app.get('/api/backup', (req, res) => {
     repo_state: db.prepare('SELECT * FROM repo_state').all(),
     repo_notice: db.prepare('SELECT repo_id, full_name, body, created_at FROM repo_notice').all(),
     repo_tag: db.prepare('SELECT repo_id, full_name, tag, created_at FROM repo_tag').all(),
+    repo_flag: db.prepare('SELECT repo_id, full_name, flag, created_at FROM repo_flag').all(),
   });
 });
 
@@ -442,6 +476,9 @@ const restoreNoticeStmt = db.prepare(
 );
 const restoreTagStmt = db.prepare(
   `INSERT OR IGNORE INTO repo_tag (repo_id, full_name, tag, created_at) VALUES (@repo_id, @full_name, @tag, @created_at)`
+);
+const restoreFlagStmt = db.prepare(
+  `INSERT OR IGNORE INTO repo_flag (repo_id, full_name, flag, created_at) VALUES (@repo_id, @full_name, @flag, @created_at)`
 );
 
 // Replace all triage state from a backup payload, transactionally (all-or-nothing).
@@ -478,6 +515,11 @@ app.post('/api/restore', (req, res) => {
         if (t.repo_id == null || !t.tag) continue;
         restoreTagStmt.run({ repo_id: t.repo_id, full_name: t.full_name ?? null, tag: normalizeTag(t.tag), created_at: t.created_at ?? now });
       }
+      db.prepare('DELETE FROM repo_flag').run();
+      for (const f of (body.repo_flag || [])) {
+        if (f.repo_id == null || !f.flag) continue;
+        restoreFlagStmt.run({ repo_id: f.repo_id, full_name: f.full_name ?? null, flag: normalizeTag(f.flag), created_at: f.created_at ?? now });
+      }
     });
     restore();
   } catch (e) {
@@ -485,7 +527,12 @@ app.post('/api/restore', (req, res) => {
   }
   res.json({
     ok: true,
-    restored: { repo_state: body.repo_state.length, repo_notice: body.repo_notice.length, repo_tag: body.repo_tag.length },
+    restored: {
+      repo_state: body.repo_state.length,
+      repo_notice: body.repo_notice.length,
+      repo_tag: body.repo_tag.length,
+      repo_flag: (body.repo_flag || []).length,
+    },
   });
 });
 

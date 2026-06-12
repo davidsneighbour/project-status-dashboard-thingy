@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useDialog } from '../lib/useDialog.js';
 import { useIsMobile } from '../lib/useIsMobile.js';
-import { cx, tagColor, PRIORITY_LEVELS, PRIORITY_META } from '../lib/constants.js';
+import { cx, tagColor, PRIORITY_LEVELS, PRIORITY_META, FLAG_NAMES, FLAG_META } from '../lib/constants.js';
 
-export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetPriority, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onClose }) {
+export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = false, defaultInactivity, allTags = [], onSetChecked, onClearCheck, onSetPriority, onSetInactivity, onSetIgnored, onAddNotice, onViewNotices, onAddTag, onRemoveTag, onAddFlag, onRemoveFlag, onClose }) {
   const [days, setDays] = useState(repo.inactivity_days ?? '');
   const [notice, setNotice] = useState('');
   const [tag, setTag] = useState('');
@@ -231,6 +231,30 @@ export function CardMenu({ repo, anchorRef, autoFocusTag = false, tagOnly = fals
 
         {!tagOnly && (
         <>
+        <div className="mt-2 border-t border-neutral-800 pt-2">
+          <label className="block px-1 text-[10px] uppercase tracking-widest text-neutral-500">Flags</label>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {FLAG_NAMES.map((f) => {
+              const active = (repo.flags || []).includes(f);
+              const meta = FLAG_META[f];
+              return (
+                <button
+                  key={f}
+                  aria-pressed={active}
+                  title={meta.label}
+                  onClick={() => active ? onRemoveFlag(repo.id, f) : onAddFlag(repo.id, f)}
+                  className={cx(
+                    'rounded-md px-2 py-1 text-[11px]',
+                    active ? 'bg-neutral-700 text-neutral-100' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200'
+                  )}
+                >
+                  {meta.emoji} {meta.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="mt-2 border-t border-neutral-800 pt-2">
           <button
             onClick={() => {

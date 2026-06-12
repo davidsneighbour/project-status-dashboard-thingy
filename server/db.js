@@ -73,4 +73,18 @@ db.exec(`
 db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_tag_repo ON repo_tag (repo_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_tag_tag ON repo_tag (tag)`);
 
+// Generic boolean flags (pinned, muted, needs-decision, …). One row per
+// (repo, flag); mirrors repo_tag but the key name is 'flag' not 'tag'.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS repo_flag (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id    INTEGER NOT NULL,
+    full_name  TEXT,
+    flag       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (repo_id, flag)
+  );
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_flag_repo ON repo_flag (repo_id)`);
+
 export default db;

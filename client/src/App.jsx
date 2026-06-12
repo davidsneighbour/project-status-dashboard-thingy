@@ -338,6 +338,8 @@ export default function App() {
   const onViewNotices = useCallback((scope) => setNoticesScope(scope), []);
   const onAddTag = useCallback((id, tag) => mutate(() => api.addTag(id, tag)), [mutate]);
   const onRemoveTag = useCallback((id, tag) => mutate(() => api.removeTag(id, tag)), [mutate]);
+  const onAddFlag = useCallback((id, flag) => mutate(() => api.addFlag(id, flag)), [mutate]);
+  const onRemoveFlag = useCallback((id, flag) => mutate(() => api.removeFlag(id, flag)), [mutate]);
   // Delete a tag from every repo that carries it (from the tag-filter dropdown).
   const onDeleteTag = useCallback((tag) => mutate(() => api.deleteTag(tag)), [mutate]);
   const onToggleMenu = useCallback((id, intent = null) => {
@@ -523,6 +525,8 @@ export default function App() {
     onViewNotices,
     onAddTag,
     onRemoveTag,
+    onAddFlag,
+    onRemoveFlag,
     selectedIds,
     onToggleSelect,
     onSelectMany,
