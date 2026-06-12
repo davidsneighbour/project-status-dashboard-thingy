@@ -8,7 +8,6 @@ export const EMPTY_DATA = {
   syncing: false,
   defaultInactivityDays: 7,
   lastFetch: null,
-  username: null,
   owners: [],
   sourceWarnings: [],
   tokenPresent: true,

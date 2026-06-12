@@ -54,7 +54,6 @@ beforeEach(() => {
   authStatus.source = null;
   authStatus.present = false;
   process.env.GITHUB_TOKEN = 'test-token';
-  delete process.env.GITHUB_USERNAME;
   delete process.env.GITHUB_OWNERS;
   // Default: gh has no token; individual tests opt in via mockReturnValueOnce.
   execFileSync.mockReset();
@@ -326,19 +325,6 @@ describe('fetchAllRepos — configured owners', () => {
     const repos = await fetchAllRepos();
     expect(repos.map((r) => r.id)).toEqual([1]);
     expect(sourceStatus.warnings.join(' ')).toMatch(/Could not load "broken".*500/);
-  });
-
-  it('still treats GITHUB_USERNAME as a single-owner alias', async () => {
-    process.env.GITHUB_USERNAME = 'octocat';
-    const fetchMock = routeFetch([
-      ['/orgs/octocat/repos', () => makeRes({ status: 404, body: 'Not Found', headers: RATE_HEADERS })],
-      ['/users/octocat/repos', () => makeRes({ body: [], headers: RATE_HEADERS })],
-      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
-    ]);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await fetchAllRepos();
-    expect(fetchMock.mock.calls.some(([url]) => url.includes('/users/octocat/repos'))).toBe(true);
   });
 
   it('derives the owner from full_name when the repo has no owner object', async () => {

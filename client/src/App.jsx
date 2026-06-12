@@ -473,8 +473,6 @@ export default function App() {
     ? data.owners.length <= 3
       ? data.owners.map((o, i) => <span key={o}>{i > 0 ? ', ' : ''}{ownerLink(o)}</span>)
       : `${data.owners.length} owners`
-    : data.username
-    ? ownerLink(data.username)
     : 'authenticated user';
 
   // Single polite live-region message; screen readers announce it on change.

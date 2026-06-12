@@ -58,7 +58,6 @@ const payload = {
   cacheReady: true,
   defaultInactivityDays: 7,
   lastFetch: '2026-06-03T00:00:00.000Z',
-  username: 'user',
   tokenPresent: true,
   lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },

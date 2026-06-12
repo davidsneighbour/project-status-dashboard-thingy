@@ -25,7 +25,7 @@ const payload = {
     },
   ],
   cacheReady: true, syncing: false, defaultInactivityDays: 7, lastFetch: '2026-06-03T00:00:00.000Z',
-  username: null, owners: [], sourceWarnings: [], tokenPresent: true, lastError: null,
+  owners: [], sourceWarnings: [], tokenPresent: true, lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
 };
 

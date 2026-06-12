@@ -440,7 +440,7 @@ export async function fetchAllRepos() {
   sourceStatus.owners = [];
   sourceStatus.warnings = [];
 
-  const owners = parseOwners(process.env.GITHUB_OWNERS ?? process.env.GITHUB_USERNAME);
+  const owners = parseOwners(process.env.GITHUB_OWNERS);
 
   let raw;
   if (owners.length === 0) {

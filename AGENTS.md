@@ -103,8 +103,7 @@ schedule state.
 
 `GITHUB_TOKEN` is optional — if unset, the server falls back to `gh auth token`
 (requires `gh auth login`). `GITHUB_OWNERS` selects which users/orgs to load
-(comma list or JSON array; blank = the token owner's full set). `GITHUB_USERNAME`
-is a **deprecated** single-owner alias for `GITHUB_OWNERS`.
+(comma list or JSON array; blank = the token owner's full set).
 
 Sync and schedule variables are also first-class runtime configuration:
 

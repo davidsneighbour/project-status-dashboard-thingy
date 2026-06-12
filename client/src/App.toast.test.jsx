@@ -35,7 +35,7 @@ const card = (id, name, extra = {}) => ({
 const payload = {
   repos: [card(1, 'alpha'), card(2, 'beta')],
   cacheReady: true, syncing: false, defaultInactivityDays: 7,
-  lastFetch: '2026-06-03T00:00:00.000Z', username: null, owners: [],
+  lastFetch: '2026-06-03T00:00:00.000Z', owners: [],
   sourceWarnings: [], tokenPresent: true, lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
 };
