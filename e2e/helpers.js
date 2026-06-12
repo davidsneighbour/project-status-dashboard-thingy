@@ -6,7 +6,7 @@
  * mocked here so individual test files don't see unexpected 404s in the console.
  */
 
-export const DEFAULT_INACTIVITY = 3;
+export const DEFAULT_INACTIVITY = 7;
 
 export function makeRepos() {
   return [

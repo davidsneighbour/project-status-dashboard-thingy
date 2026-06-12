@@ -118,9 +118,9 @@ test.describe('mobile layout', () => {
     const sheet = page.getByRole('dialog', { name: /Reschedule alpha-repo/ });
     await expect(sheet).toBeVisible();
 
-    // Default value is the effective inactivity days (3 from the mock)
+    // Default value is the effective inactivity days (7 from the mock)
     const input = sheet.getByRole('spinbutton', { name: 'Mark done for (days)' });
-    await expect(input).toHaveValue('3');
+    await expect(input).toHaveValue('7');
 
     // Tap the 7-day preset
     await sheet.getByRole('button', { name: '7d' }).tap();
