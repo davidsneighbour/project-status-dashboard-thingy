@@ -2,9 +2,9 @@
     "recommendations": [
         "anthropic.claude-code",
         "streetsidesoftware.code-spell-checker",
-        "gruntfuggly.todo-tree",
         "wayou.vscode-todo-highlight",
         "aaron-bond.better-comments",
-        "google.wireit"
+        "google.wireit",
+        "fanaticpythoner.better-todo-tree"
     ]
 }
