@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.0](https://github.com/davidsneighbour/project-dashboard/compare/v0.1.0...v1.0.0) (2026-06-12)
+
 ## 0.1.0 (2026-06-12)
 
 ### Features
