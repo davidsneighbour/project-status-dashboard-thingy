@@ -1,14 +1,14 @@
 {
-  "name": "project-status-dashboard-thingy",
+  "name": "@davidsneighbour/project-dashboard",
   "version": "0.0.1",
   "description": "A local-only dashboard that lists **all** your GitHub repositories as a kanban board and lets you triage them by priority.",
-  "homepage": "https://github.com/davidsneighbour/project-status-dashboard-thingy#readme",
+  "homepage": "https://github.com/davidsneighbour/project-dashboard#readme",
   "bugs": {
-    "url": "https://github.com/davidsneighbour/project-status-dashboard-thingy/issues"
+    "url": "https://github.com/davidsneighbour/project-dashboard/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/davidsneighbour/project-status-dashboard-thingy.git"
+    "url": "git+https://github.com/davidsneighbour/project-dashboard.git"
   },
   "license": "MIT",
   "author": "Patrick Kollitsch <davidsneighbourdev+gh@gmail.com>",
