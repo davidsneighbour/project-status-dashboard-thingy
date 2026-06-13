@@ -7,12 +7,46 @@ import { cx } from '../lib/constants.js';
 import { timeAgo } from '../lib/date.js';
 import { sortNotices } from '../lib/board.js';
 
+const ACTION_LABEL = {
+  priority: 'Priority changed',
+  clear: 'Schedule cleared',
+  state: 'State restored',
+  check: 'Checked',
+  touch: 'Touched',
+  inactivity: 'Review cadence changed',
+  snooze: 'Snoozed',
+  ignore: 'Ignored/unignored',
+  notice_add: 'Notice added',
+  notice_delete: 'Notice deleted',
+  tag_add: 'Tag added',
+  tag_remove: 'Tag removed',
+  flag_add: 'Flag added',
+  flag_remove: 'Flag removed',
+};
+
+function activitySummary(entry) {
+  const d = entry.detail;
+  if (!d) return ACTION_LABEL[entry.action] ?? entry.action;
+  if (entry.action === 'check') return `Checked (${d.daysAgo}d ago)`;
+  if (entry.action === 'snooze') return `Snoozed ${d.days}d`;
+  if (entry.action === 'inactivity') return `Review cadence → ${d.days == null ? 'default' : `${d.days}d`}`;
+  if (entry.action === 'priority') return `Priority → ${d.priority ?? 'none'}`;
+  if (entry.action === 'tag_add') return `Tag added: ${d.tag}`;
+  if (entry.action === 'tag_remove') return `Tag removed: ${d.tag}`;
+  if (entry.action === 'flag_add') return `Flag added: ${d.flag}`;
+  if (entry.action === 'flag_remove') return `Flag removed: ${d.flag}`;
+  if (entry.action === 'ignore') return d.ignored ? 'Ignored' : 'Unignored';
+  if (entry.action === 'notice_add') return `Notice: ${String(d.body).slice(0, 60)}${d.body?.length > 60 ? '…' : ''}`;
+  return ACTION_LABEL[entry.action] ?? entry.action;
+}
+
 export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged, onDeleted }) {
   const [notices, setNotices] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [tab, setTab] = useState('notices');
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('date');
   const [dir, setDir] = useState('desc');
-  // Two-step delete: the first click arms a confirm on that notice id.
   const [confirmId, setConfirmId] = useState(null);
   const dialogRef = useDialog(onClose);
 
@@ -22,8 +56,12 @@ export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged,
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const res = isAll ? await api.allNotices() : await api.repoNotices(scope);
-      setNotices(res.notices || []);
+      const noticeRes = isAll ? await api.allNotices() : await api.repoNotices(scope);
+      setNotices(noticeRes.notices || []);
+      if (!isAll) {
+        const actRes = await api.getActivity(scope);
+        setActivity(actRes.activity || []);
+      }
     } finally {
       setLoading(false);
     }
@@ -31,7 +69,8 @@ export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged,
 
   useEffect(() => {
     reload();
-  }, [reload]);
+    if (isAll) setTab('notices');
+  }, [reload, isAll]);
 
   const sorted = useMemo(() => sortNotices(notices, sort, dir), [notices, sort, dir]);
 
@@ -68,27 +107,47 @@ export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged,
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
-              <button
-                onClick={() => setSort('date')}
-                className={cx('px-2 py-1', sort === 'date' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
-              >
-                date
-              </button>
-              <button
-                onClick={() => setSort('repo')}
-                className={cx('px-2 py-1', sort === 'repo' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
-              >
-                repo
-              </button>
-            </div>
-            <button
-              onClick={() => setDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              aria-label="Toggle sort direction"
-              className="rounded-md border border-neutral-700 px-2 py-1 text-[11px] tabular-nums text-neutral-300 hover:bg-neutral-800"
-            >
-              {dir === 'asc' ? '↑ asc' : '↓ desc'}
-            </button>
+            {!isAll && (
+              <div className="flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
+                <button
+                  onClick={() => setTab('notices')}
+                  className={cx('px-2 py-1', tab === 'notices' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+                >
+                  Notices
+                </button>
+                <button
+                  onClick={() => setTab('activity')}
+                  className={cx('px-2 py-1', tab === 'activity' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+                >
+                  Activity
+                </button>
+              </div>
+            )}
+            {tab === 'notices' && (
+              <>
+                <div className="flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
+                  <button
+                    onClick={() => setSort('date')}
+                    className={cx('px-2 py-1', sort === 'date' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+                  >
+                    date
+                  </button>
+                  <button
+                    onClick={() => setSort('repo')}
+                    className={cx('px-2 py-1', sort === 'repo' ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:bg-neutral-800')}
+                  >
+                    repo
+                  </button>
+                </div>
+                <button
+                  onClick={() => setDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                  aria-label="Toggle sort direction"
+                  className="rounded-md border border-neutral-700 px-2 py-1 text-[11px] tabular-nums text-neutral-300 hover:bg-neutral-800"
+                >
+                  {dir === 'asc' ? '↑ asc' : '↓ desc'}
+                </button>
+              </>
+            )}
             <button
               onClick={onClose}
               aria-label="Close notices"
@@ -102,6 +161,21 @@ export function NoticesDialog({ scope, repos, onClose, onScopeChange, onChanged,
         <div className="overflow-auto px-4 py-3">
           {loading ? (
             <p className="py-6 text-center text-xs text-neutral-600">loading...</p>
+          ) : tab === 'activity' ? (
+            activity.length === 0 ? (
+              <p className="py-6 text-center text-xs text-neutral-700">no activity yet</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {activity.map((e) => (
+                  <li key={e.id} className="flex items-center justify-between gap-3 rounded-md bg-neutral-950 px-3 py-1.5">
+                    <span className="text-xs text-neutral-300">{activitySummary(e)}</span>
+                    <span className="shrink-0 text-[10px] tabular-nums text-neutral-500" title={new Date(e.created_at).toLocaleString()}>
+                      {timeAgo(e.created_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
           ) : sorted.length === 0 ? (
             <p className="py-6 text-center text-xs text-neutral-700">no notices yet</p>
           ) : (

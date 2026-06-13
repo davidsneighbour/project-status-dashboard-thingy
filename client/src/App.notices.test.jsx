@@ -17,6 +17,7 @@ vi.mock('./api.js', () => ({
     repoNotices: vi.fn(),
     allNotices: vi.fn(),
     deleteNotice: vi.fn(),
+    getActivity: vi.fn(),
   },
 }));
 
@@ -72,6 +73,7 @@ describe('ignore flag + notices UI', () => {
     api.addNotice.mockResolvedValue({ ok: true, id: 9 });
     api.deleteNotice.mockResolvedValue({ ok: true });
     api.repoNotices.mockResolvedValue({ notices: [] });
+    api.getActivity.mockResolvedValue({ activity: [] });
     api.allNotices.mockResolvedValue({
       notices: [
         { id: 11, repo_id: 1, full_name: 'user/repo-a', body: 'alpha note', created_at: '2026-06-01T00:00:00.000Z' },

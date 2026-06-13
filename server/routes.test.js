@@ -887,3 +887,46 @@ describe('POST /api/webhook', () => {
     expect(res.body).toMatchObject({ ok: true, event: 'pull_request' });
   });
 });
+
+describe('GET /api/repos/:id/activity', () => {
+  it('returns empty activity for a repo with no mutations', async () => {
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.activity)).toBe(true);
+  });
+
+  it('logs a check action and GET returns it', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/check`).send({ daysAgo: 2 });
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    const entry = res.body.activity.find((e) => e.action === 'check');
+    expect(entry).toBeDefined();
+    expect(entry.detail).toMatchObject({ daysAgo: 2 });
+  });
+
+  it('logs a priority action', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/priority`).send({ priority: 1 });
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    const entry = res.body.activity.find((e) => e.action === 'priority');
+    expect(entry?.detail).toMatchObject({ priority: 1 });
+  });
+
+  it('logs a tag_add action', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/tags`).send({ tag: 'log-test' });
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    const entry = res.body.activity.find((e) => e.action === 'tag_add' && e.detail?.tag === 'log-test');
+    expect(entry).toBeDefined();
+  });
+
+  it('logs a notice_add action', async () => {
+    await request(app).post(`/api/repos/${REPO.id}/notices`).send({ body: 'test note' });
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    const entry = res.body.activity.find((e) => e.action === 'notice_add');
+    expect(entry?.detail).toMatchObject({ body: 'test note' });
+  });
+
+  it('activity entries are ordered newest-first', async () => {
+    const res = await request(app).get(`/api/repos/${REPO.id}/activity`);
+    const ids = res.body.activity.map((e) => e.id);
+    expect(ids).toEqual([...ids].sort((a, b) => b - a));
+  });
+});

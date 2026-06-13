@@ -129,4 +129,17 @@ db.exec(`
   );
 `);
 
+// Per-mutation audit trail. Kept to 200 rows per repo (oldest trimmed on insert).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id    INTEGER NOT NULL,
+    full_name  TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS activity_log_repo_id ON activity_log(repo_id);
+`);
+
 export default db;

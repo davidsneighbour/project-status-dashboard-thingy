@@ -110,4 +110,5 @@ export const api = {
     }).then(json),
   deleteTagRule: (tag) =>
     fetch(`/api/tag-rules/${encodeURIComponent(tag)}`, { method: 'DELETE' }).then(json),
+  getActivity: (id) => fetch(`/api/repos/${id}/activity`).then(json),
 };
