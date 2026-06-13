@@ -1,7 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { beforeAll, beforeEach, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 
 // db.js reads DATA_DIR at import time, so point it at a throwaway dir BEFORE
@@ -822,5 +823,67 @@ describe('GET/PUT/DELETE /api/tag-rules', () => {
     const res = await request(app).get('/api/repos');
     const repo = res.body.repos.find((r) => r.id === REPO.id);
     expect(repo.effective_inactivity_days).toBe(14);
+  });
+});
+
+describe('POST /api/webhook', () => {
+  const sign = (body, secret) =>
+    `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+  afterEach(() => {
+    delete process.env.WEBHOOK_SECRET;
+  });
+
+  it('returns 200 and queues refresh for a known event when no secret is configured', async () => {
+    const res = await request(app)
+      .post('/api/webhook')
+      .set('x-github-event', 'push')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ ref: 'refs/heads/main' }));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, event: 'push' });
+  });
+
+  it('returns 200 for an unrecognised event (no refresh, no error)', async () => {
+    const res = await request(app)
+      .post('/api/webhook')
+      .set('x-github-event', 'star')
+      .send('{}');
+    expect(res.status).toBe(200);
+    expect(res.body.event).toBe('star');
+  });
+
+  it('returns 401 when secret is set and signature is missing', async () => {
+    process.env.WEBHOOK_SECRET = 'mysecret';
+    const res = await request(app)
+      .post('/api/webhook')
+      .set('x-github-event', 'push')
+      .send('{}');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/signature/);
+  });
+
+  it('returns 401 when secret is set and signature is wrong', async () => {
+    process.env.WEBHOOK_SECRET = 'mysecret';
+    const res = await request(app)
+      .post('/api/webhook')
+      .set('x-github-event', 'push')
+      .set('x-hub-signature-256', 'sha256=badvalue')
+      .send('{}');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 200 when secret is set and signature is valid', async () => {
+    process.env.WEBHOOK_SECRET = 'mysecret';
+    const body = JSON.stringify({ action: 'opened' });
+    const sig = sign(body, 'mysecret');
+    const res = await request(app)
+      .post('/api/webhook')
+      .set('x-github-event', 'pull_request')
+      .set('x-hub-signature-256', sig)
+      .set('Content-Type', 'application/json')
+      .send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, event: 'pull_request' });
   });
 });

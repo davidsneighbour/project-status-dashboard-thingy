@@ -8,6 +8,7 @@ import syncRouter from './routes/sync.js';
 import settingsRouter from './routes/settings.js';
 import ghRouter from './routes/gh.js';
 import tagRulesRouter from './routes/tagrules.js';
+import webhookRouter from './routes/webhook.js';
 
 import { SYNC_ON_STARTUP, SYNC_AUTO, getEffectiveSyncIntervalMinutes } from './lib/settings.js';
 import { refreshRepos, queueRefresh, restartSyncInterval } from './lib/sync.js';
@@ -18,6 +19,10 @@ const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0';
 
 const app = express();
+
+// Webhook must be mounted before express.json() so it can use its own raw body parser.
+app.use('/api', webhookRouter);
+
 app.use(express.json());
 
 app.use('/api', reposRouter);
