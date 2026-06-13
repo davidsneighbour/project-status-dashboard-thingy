@@ -129,6 +129,17 @@ db.exec(`
   );
 `);
 
+// Persisted undo entries so bulk-action recovery survives a page reload.
+// Kept to 20 entries total; oldest trimmed on insert.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS undo_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    label      TEXT NOT NULL,
+    ops        TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`);
+
 // Per-mutation audit trail. Kept to 200 rows per repo (oldest trimmed on insert).
 db.exec(`
   CREATE TABLE IF NOT EXISTS activity_log (

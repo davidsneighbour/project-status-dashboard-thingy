@@ -253,12 +253,28 @@ export default function App() {
     api.putPrefs?.({ density, sort: sortKey, view, groupBy, fields, filters, showIgnored })?.catch(() => {});
   }, [serverPrefsLoaded, density, sortKey, view, groupBy, fields, filters, showIgnored]);
 
-  const showToast = useCallback((message, undo = null) => setToast({ message, undo }), []);
+  // Tracks the undo_log entry ID for the currently-shown toast (if persisted).
+  const pendingUndoIdRef = useRef(null);
+
+  const showToast = useCallback((message, undo = null, ops = null) => {
+    pendingUndoIdRef.current = null;
+    setToast({ message, undo });
+    if (ops?.length) {
+      api.createUndo?.(message, ops)
+        .then(({ id }) => { pendingUndoIdRef.current = id; })
+        .catch(() => {});
+    }
+  }, []);
 
   // Auto-dismiss the toast after a few seconds (re-armed whenever it changes).
   useEffect(() => {
     if (!toast) return undefined;
-    const t = setTimeout(() => setToast(null), 6000);
+    const t = setTimeout(() => {
+      const undoId = pendingUndoIdRef.current;
+      pendingUndoIdRef.current = null;
+      if (undoId) api.discardUndo?.(undoId).catch(() => {});
+      setToast(null);
+    }, 6000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -302,6 +318,26 @@ export default function App() {
     }, POLL_MS);
     return () => clearInterval(t);
   }, [load]);
+
+  // On startup, restore the most recent persisted undo entry (< 5 min old).
+  useEffect(() => {
+    api.getUndoLog?.().then(({ entries }) => {
+      if (!entries?.length) return;
+      const e = entries[0];
+      if (Date.now() - new Date(e.created_at).getTime() > 5 * 60 * 1000) return;
+      pendingUndoIdRef.current = e.id;
+      setToast({
+        message: e.label,
+        undoHandlesCleanup: true,
+        undo: () => api.executeUndo(e.id).then(() => {
+          pendingUndoIdRef.current = null;
+          load();
+        }),
+      });
+    }).catch(() => {});
+  // Intentionally runs once on mount — load is stable after mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Poll while the backend is still warming up its cache or actively syncing,
   // so a background GitHub fetch (startup or queued "sync") fills the board in
@@ -371,7 +407,11 @@ export default function App() {
       const prioritySetAt = repo?.priority_set_at ?? null;
       const checkedAt = repo?.checked_at ?? null;
       const result = mutate(() => api.clearSchedule(id));
-      showToast('Check cleared', () => mutate(() => api.restoreState(id, prioritySetAt, checkedAt)));
+      showToast(
+        'Check cleared',
+        () => mutate(() => api.restoreState(id, prioritySetAt, checkedAt)),
+        [{ type: 'restoreState', repoId: id, fullName: repo?.full_name ?? null, prioritySetAt, checkedAt }]
+      );
       return result;
     },
     [mutate, data.repos, showToast]
@@ -387,8 +427,13 @@ export default function App() {
       const result = mutate(() => api.setIgnored(id, ignored));
       // Ignoring hides the repo — offer a one-click undo. (Unignoring needs none.)
       if (ignored) {
-        const name = data.repos.find((r) => r.id === id)?.name ?? 'repo';
-        showToast(`Ignored ${name}`, () => mutate(() => api.setIgnored(id, false)));
+        const repo = data.repos.find((r) => r.id === id);
+        const name = repo?.name ?? 'repo';
+        showToast(
+          `Ignored ${name}`,
+          () => mutate(() => api.setIgnored(id, false)),
+          [{ type: 'setIgnored', repoId: id, fullName: repo?.full_name ?? null, ignored: false }]
+        );
       }
       return result;
     },
@@ -448,8 +493,16 @@ export default function App() {
     clear: () => bulkApply((id) => api.clearSchedule(id)),
     ignore: () => {
       const ids = [...selectedIds];
+      const repoMap = Object.fromEntries(data.repos.map((r) => [r.id, r.full_name]));
       const result = bulkApply((id) => api.setIgnored(id, true));
-      if (ids.length) showToast(`${ids.length} repo${ids.length === 1 ? '' : 's'} ignored`, () => bulkUnignore(ids));
+      if (ids.length) {
+        const ops = ids.map((id) => ({ type: 'setIgnored', repoId: id, fullName: repoMap[id] ?? null, ignored: false }));
+        showToast(
+          `${ids.length} repo${ids.length === 1 ? '' : 's'} ignored`,
+          () => bulkUnignore(ids),
+          ops
+        );
+      }
       return result;
     },
     unignore: () => bulkApply((id) => api.setIgnored(id, false)),
@@ -930,8 +983,25 @@ export default function App() {
       {toast && (
         <Toast
           message={toast.message}
-          onUndo={toast.undo ? () => { toast.undo(); setToast(null); } : undefined}
-          onDismiss={() => setToast(null)}
+          onUndo={toast.undo ? () => {
+            // Grab and clear the ref before async work starts to prevent the
+            // auto-dismiss timer from also calling discardUndo concurrently.
+            const undoId = pendingUndoIdRef.current;
+            pendingUndoIdRef.current = null;
+            toast.undo();
+            // In-session toasts: undo is a closure; discard the persisted entry.
+            // Startup-recovery toasts: undo calls executeUndo which already deletes.
+            if (undoId && !toast.undoHandlesCleanup) {
+              api.discardUndo?.(undoId).catch(() => {});
+            }
+            setToast(null);
+          } : undefined}
+          onDismiss={() => {
+            const undoId = pendingUndoIdRef.current;
+            pendingUndoIdRef.current = null;
+            if (undoId) api.discardUndo?.(undoId).catch(() => {});
+            setToast(null);
+          }}
         />
       )}
     </div>

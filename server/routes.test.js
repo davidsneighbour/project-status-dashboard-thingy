@@ -930,3 +930,69 @@ describe('GET /api/repos/:id/activity', () => {
     expect(ids).toEqual([...ids].sort((a, b) => b - a));
   });
 });
+
+describe('GET/POST /api/undo + POST/DELETE /api/undo/:id', () => {
+  const ops = [{ type: 'setIgnored', repoId: REPO.id, fullName: REPO.full_name, ignored: false }];
+
+  it('GET returns empty list initially', async () => {
+    const res = await request(app).get('/api/undo');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.entries)).toBe(true);
+  });
+
+  it('POST creates an entry and GET returns it', async () => {
+    const post = await request(app).post('/api/undo').send({ label: 'Ignored 1 repo', ops });
+    expect(post.status).toBe(200);
+    expect(post.body).toMatchObject({ ok: true, label: 'Ignored 1 repo' });
+    const id = post.body.id;
+
+    const get = await request(app).get('/api/undo');
+    expect(get.body.entries.find((e) => e.id === id)).toMatchObject({ label: 'Ignored 1 repo' });
+  });
+
+  it('POST /undo rejects missing label', async () => {
+    const res = await request(app).post('/api/undo').send({ ops });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /undo rejects empty ops', async () => {
+    const res = await request(app).post('/api/undo').send({ label: 'test', ops: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE /undo/:id discards without executing', async () => {
+    const post = await request(app).post('/api/undo').send({ label: 'Discard me', ops });
+    const id = post.body.id;
+    const del = await request(app).delete(`/api/undo/${id}`);
+    expect(del.status).toBe(200);
+    expect(del.body.removed).toBe(1);
+    const get = await request(app).get('/api/undo');
+    expect(get.body.entries.find((e) => e.id === id)).toBeUndefined();
+  });
+
+  it('POST /undo/:id executes setIgnored op and removes entry', async () => {
+    // First ignore the repo so we have something to undo.
+    await request(app).post(`/api/repos/${REPO.id}/ignore`).send({ ignored: true });
+    // Create an undo entry.
+    const post = await request(app).post('/api/undo').send({ label: 'Ignored repo', ops });
+    const id = post.body.id;
+
+    const exec = await request(app).post(`/api/undo/${id}`);
+    expect(exec.status).toBe(200);
+    expect(exec.body.ok).toBe(true);
+
+    // Entry should be gone.
+    const get = await request(app).get('/api/undo');
+    expect(get.body.entries.find((e) => e.id === id)).toBeUndefined();
+
+    // Repo should be unignored.
+    const repos = await request(app).get('/api/repos');
+    const repo = repos.body.repos.find((r) => r.id === REPO.id);
+    expect(repo.ignored).toBe(false);
+  });
+
+  it('POST /undo/:id returns 404 for unknown id', async () => {
+    const res = await request(app).post('/api/undo/99999');
+    expect(res.status).toBe(404);
+  });
+});

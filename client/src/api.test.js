@@ -228,4 +228,24 @@ describe('api wrapper contract', () => {
         }]);
         expect(fetchMock.mock.calls[2]).toEqual(['/api/tag-rules/infra', { method: 'DELETE' }]);
     });
+
+    it('covers getActivity, getUndoLog, createUndo, executeUndo, discardUndo', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ json: async () => ({ ok: true }) });
+
+        await api.getActivity(5);
+        await api.getUndoLog();
+        await api.createUndo('test', [{ type: 'setIgnored', repoId: 1, ignored: false }]);
+        await api.executeUndo(7);
+        await api.discardUndo(7);
+
+        const urls = fetchMock.mock.calls.map((c) => c[0]);
+        expect(urls[0]).toBe('/api/repos/5/activity');
+        expect(urls[1]).toBe('/api/undo');
+        expect(urls[2]).toBe('/api/undo');
+        expect(urls[3]).toBe('/api/undo/7');
+        expect(urls[4]).toBe('/api/undo/7');
+        expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST' });
+        expect(fetchMock.mock.calls[3][1]).toMatchObject({ method: 'POST' });
+        expect(fetchMock.mock.calls[4][1]).toMatchObject({ method: 'DELETE' });
+    });
 });

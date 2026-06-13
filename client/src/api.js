@@ -111,4 +111,13 @@ export const api = {
   deleteTagRule: (tag) =>
     fetch(`/api/tag-rules/${encodeURIComponent(tag)}`, { method: 'DELETE' }).then(json),
   getActivity: (id) => fetch(`/api/repos/${id}/activity`).then(json),
+  getUndoLog: () => fetch('/api/undo').then(json),
+  createUndo: (label, ops) =>
+    fetch('/api/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, ops }),
+    }).then(json),
+  executeUndo: (id) => fetch(`/api/undo/${id}`, { method: 'POST' }).then(json),
+  discardUndo: (id) => fetch(`/api/undo/${id}`, { method: 'DELETE' }).then(json),
 };

@@ -9,6 +9,7 @@ import settingsRouter from './routes/settings.js';
 import ghRouter from './routes/gh.js';
 import tagRulesRouter from './routes/tagrules.js';
 import webhookRouter from './routes/webhook.js';
+import undoRouter from './routes/undo.js';
 
 import { SYNC_ON_STARTUP, SYNC_AUTO, getEffectiveSyncIntervalMinutes } from './lib/settings.js';
 import { refreshRepos, queueRefresh, restartSyncInterval } from './lib/sync.js';
@@ -30,6 +31,7 @@ app.use('/api', syncRouter);
 app.use('/api', settingsRouter);
 app.use('/api', ghRouter);
 app.use('/api', tagRulesRouter);
+app.use('/api', undoRouter);
 
 // ---- Static client (built by Vite) ----------------------------------------
 // Bootstrap-only: present a production build when one exists. Route tests import
