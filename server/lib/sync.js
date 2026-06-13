@@ -2,6 +2,7 @@ import db from '../db.js';
 import { fetchAllRepos, enrichRepos, resolveToken } from '../github.js';
 import { ENRICH_METADATA, SYNC_AUTO, getEffectiveOwners } from './settings.js';
 import { invalidatePayloadCache } from './payloadCache.js';
+import { checkReportSchedule } from './reportSchedule.js';
 
 export let repoCache = [];
 export let enrichCache = new Map();
@@ -36,6 +37,9 @@ export async function refreshRepos() {
   } finally {
     syncing = false;
   }
+
+  // Check report schedule without blocking the response path.
+  checkReportSchedule();
 
   // Board is usable now. Run enrichment in the background so GraphQL batches
   // don't delay the first GET /api/repos response after a sync.

@@ -46,6 +46,7 @@ describe('SettingsDialog', () => {
       defaultInactivityDays: 21,
       syncIntervalMinutes: 30,
       githubOwners: 'myorg',
+      reportSchedule: null,
     }));
   });
 

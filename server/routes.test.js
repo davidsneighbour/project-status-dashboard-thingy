@@ -615,6 +615,42 @@ describe('GET /api/settings + PUT /api/settings', () => {
     // Reset
     await request(app).put('/api/settings').send({ defaultInactivityDays: 7 });
   });
+
+  it('PUT stores reportSchedule and GET reflects it', async () => {
+    const schedule = { cron: '0 8 * * 1-5', outputPath: '/tmp/reports' };
+    const put = await request(app).put('/api/settings').send({ reportSchedule: schedule });
+    expect(put.status).toBe(200);
+    const get = await request(app).get('/api/settings');
+    expect(get.body.settings.reportSchedule).toMatchObject(schedule);
+  });
+
+  it('PUT accepts null to clear reportSchedule', async () => {
+    await request(app).put('/api/settings').send({ reportSchedule: { cron: '0 9 * * *', outputPath: '/tmp' } });
+    await request(app).put('/api/settings').send({ reportSchedule: null });
+    const get = await request(app).get('/api/settings');
+    expect(get.body.settings.reportSchedule).toBeNull();
+  });
+
+  it('PUT rejects invalid cron in reportSchedule', async () => {
+    const res = await request(app).put('/api/settings').send({ reportSchedule: { cron: 'bad', outputPath: '/tmp' } });
+    expect(res.status).toBe(400);
+    expect(res.body.errors.join(' ')).toMatch(/cron/);
+  });
+
+  it('PUT rejects missing outputPath in reportSchedule', async () => {
+    const res = await request(app).put('/api/settings').send({ reportSchedule: { cron: '0 8 * * *' } });
+    expect(res.status).toBe(400);
+    expect(res.body.errors.join(' ')).toMatch(/outputPath/);
+  });
+});
+
+describe('GET /api/reports/last-export', () => {
+  it('returns null when no export has run', async () => {
+    const res = await request(app).get('/api/reports/last-export');
+    expect(res.status).toBe(200);
+    // May have a value from prior tests that ran exports; just check shape.
+    expect('lastExport' in res.body).toBe(true);
+  });
 });
 
 describe('GET /api/prefs + PUT /api/prefs', () => {

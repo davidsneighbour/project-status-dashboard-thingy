@@ -9,6 +9,8 @@ import {
 } from '../lib/settings.js';
 import { queueRefresh, restartSyncInterval } from '../lib/sync.js';
 import { invalidatePayloadCache } from '../lib/payloadCache.js';
+import { getScheduleConfig, setScheduleConfig } from '../lib/reportSchedule.js';
+import { parseCron } from '../lib/cron.js';
 
 const router = Router();
 
@@ -19,11 +21,13 @@ router.get('/settings', (req, res) => {
       defaultInactivityDays: getEffectiveInactivityDays(),
       syncIntervalMinutes: getEffectiveSyncIntervalMinutes(),
       githubOwners: getEffectiveOwners().join(', '),
+      reportSchedule: getScheduleConfig(),
     },
     defaults: {
       defaultInactivityDays: DEFAULT_INACTIVITY_DAYS_ENV,
       syncIntervalMinutes: SYNC_INTERVAL_MINUTES_ENV,
       githubOwners: parseOwners(process.env.GITHUB_OWNERS).join(', '),
+      reportSchedule: null,
     },
   });
 });
@@ -44,6 +48,23 @@ router.put('/settings', (req, res) => {
       errors.push('syncIntervalMinutes must be an integer between 1 and 1440');
     }
   }
+  if ('reportSchedule' in body && body.reportSchedule !== null) {
+    const rs = body.reportSchedule;
+    if (typeof rs !== 'object') {
+      errors.push('reportSchedule must be an object or null');
+    } else {
+      if (!rs.cron || typeof rs.cron !== 'string') {
+        errors.push('reportSchedule.cron must be a non-empty string');
+      } else {
+        try { parseCron(rs.cron); } catch (e) {
+          errors.push(`reportSchedule.cron: ${e.message}`);
+        }
+      }
+      if (!rs.outputPath || typeof rs.outputPath !== 'string') {
+        errors.push('reportSchedule.outputPath must be a non-empty string');
+      }
+    }
+  }
   if (errors.length) return res.status(400).json({ errors });
 
   const now = new Date().toISOString();
@@ -56,6 +77,10 @@ router.put('/settings', (req, res) => {
     else if (key === 'syncIntervalMinutes') dbKey = 'sync_interval_minutes';
     else dbKey = 'github_owners';
     settingUpsertStmt.run(dbKey, String(body[key] ?? ''), now);
+  }
+
+  if ('reportSchedule' in body) {
+    setScheduleConfig(body.reportSchedule); // null clears the schedule
   }
 
   if ('syncIntervalMinutes' in body) {

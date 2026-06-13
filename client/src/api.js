@@ -120,4 +120,5 @@ export const api = {
     }).then(json),
   executeUndo: (id) => fetch(`/api/undo/${id}`, { method: 'POST' }).then(json),
   discardUndo: (id) => fetch(`/api/undo/${id}`, { method: 'DELETE' }).then(json),
+  getLastExport: () => fetch('/api/reports/last-export').then(json),
 };

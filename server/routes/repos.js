@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { rateLimit, sourceStatus, authStatus } from '../github.js';
 import { buildReport, toMarkdown, toCsv, REPORT_KINDS } from '../report.js';
+import { getLastExport } from '../lib/reportSchedule.js';
 import { repoCache, cacheReady, syncing, lastFetch, lastError, findRepo } from '../lib/sync.js';
 import { buildPayload } from '../lib/payload.js';
 import { invalidatePayloadCache } from '../lib/payloadCache.js';
@@ -395,6 +396,10 @@ router.delete('/repos/:id/flags/:flag', (req, res) => {
 // ---- Reports ---------------------------------------------------------------
 router.get('/reports', (req, res) => {
   res.json({ kinds: REPORT_KINDS });
+});
+
+router.get('/reports/last-export', (req, res) => {
+  res.json({ lastExport: getLastExport() });
 });
 
 router.get('/reports/:kind', (req, res) => {

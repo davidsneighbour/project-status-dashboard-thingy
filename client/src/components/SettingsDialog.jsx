@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { useDialog } from '../lib/useDialog.js';
 import { cx } from '../lib/constants.js';
 
-export function SettingsDialog({ settings, defaults, tagRules = [], onSave, onTagRuleSave, onTagRuleDelete, onClose }) {
+export function SettingsDialog({ settings, defaults, tagRules = [], lastExport = null, onSave, onTagRuleSave, onTagRuleDelete, onClose }) {
   const dialogRef = useDialog(onClose);
 
   const [defaultInactivityDays, setDefaultInactivityDays] = useState(
@@ -20,6 +20,8 @@ export function SettingsDialog({ settings, defaults, tagRules = [], onSave, onTa
   const [newRuleTag, setNewRuleTag] = useState('');
   const [newRuleDays, setNewRuleDays] = useState('');
   const [ruleError, setRuleError] = useState('');
+  const [scheduleCron, setScheduleCron] = useState(settings?.reportSchedule?.cron ?? '');
+  const [scheduleOutputPath, setScheduleOutputPath] = useState(settings?.reportSchedule?.outputPath ?? '');
 
   const handleAddRule = async () => {
     const tag = newRuleTag.trim().toLowerCase();
@@ -42,8 +44,11 @@ export function SettingsDialog({ settings, defaults, tagRules = [], onSave, onTa
     if (errs.length) { setErrors(errs); return; }
     setErrors([]);
     setSaving(true);
+    const reportSchedule = scheduleCron.trim() && scheduleOutputPath.trim()
+      ? { cron: scheduleCron.trim(), outputPath: scheduleOutputPath.trim() }
+      : null;
     try {
-      await onSave({ defaultInactivityDays: days, syncIntervalMinutes: mins, githubOwners });
+      await onSave({ defaultInactivityDays: days, syncIntervalMinutes: mins, githubOwners, reportSchedule });
     } finally {
       setSaving(false);
     }
@@ -188,6 +193,44 @@ export function SettingsDialog({ settings, defaults, tagRules = [], onSave, onTa
               >
                 Add
               </button>
+            </div>
+          </div>
+
+          <div className="border-t border-neutral-800 pt-4">
+            <p className={labelClass}>Scheduled report export</p>
+            <p className="mb-2 text-[10px] text-neutral-600">
+              Writes all reports to disk after each sync when the cron schedule matches (5-field format, local time).
+              Leave blank to disable.
+            </p>
+            <div className="space-y-2">
+              <div>
+                <label htmlFor="settings-sched-cron" className={labelClass}>Cron expression</label>
+                <input
+                  id="settings-sched-cron"
+                  type="text"
+                  placeholder="0 8 * * 1-5  (Mon–Fri at 08:00)"
+                  value={scheduleCron}
+                  onChange={(e) => setScheduleCron(e.target.value)}
+                  className={cx(fieldClass, 'placeholder:text-neutral-700 font-mono')}
+                />
+              </div>
+              <div>
+                <label htmlFor="settings-sched-path" className={labelClass}>Output path</label>
+                <input
+                  id="settings-sched-path"
+                  type="text"
+                  placeholder="/data/reports"
+                  value={scheduleOutputPath}
+                  onChange={(e) => setScheduleOutputPath(e.target.value)}
+                  className={cx(fieldClass, 'placeholder:text-neutral-700')}
+                />
+              </div>
+              {lastExport && (
+                <p className="text-[10px] text-neutral-500">
+                  Last export: {lastExport.status === 'ok' ? '✓' : '⚠'} {new Date(lastExport.timestamp).toLocaleString()}
+                  {lastExport.outputPath && ` → ${lastExport.outputPath}`}
+                </p>
+              )}
             </div>
           </div>
 
