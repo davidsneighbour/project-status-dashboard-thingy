@@ -1,3 +1,11 @@
+/**
+ * @module db
+ * @description SQLite database setup via `better-sqlite3`. Creates and
+ *   migrates five tables — `repo_state`, `repo_notice`, `repo_tag`,
+ *   `repo_flag`, `prefs` — and exports the open database handle as the
+ *   default export. The database file lives in `DATA_DIR` (default `/data`
+ *   in Docker, `./data` fallback) with WAL journalling enabled.
+ */
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -24,10 +32,11 @@ db.exec(`
     full_name       TEXT,
     priority        INTEGER,          -- 1..3 = assigned, NULL = inbox / untriaged
     priority_set_at TEXT,             -- scheduling anchor (may be back-dated to place a card in a future column)
-    checked_at      TEXT,             -- ISO time the repo was actually last reviewed (drives "checked Nd ago")
+    checked_at      TEXT,             -- ISO time the repo was actually last reviewed (drives "checked 3d ago" display)
     inactivity_days INTEGER,          -- per-repo override; NULL = use the global default
     position        INTEGER DEFAULT 0,-- ordering within a column (for drag sorting)
     ignored         INTEGER DEFAULT 0,-- 1 = hidden from the board unless "show ignored" is on
+    snooze_until    TEXT,             -- nullable ISO datetime; one-off snooze that overrides normal interval until it elapses
     updated_at      TEXT
   );
 `);
@@ -43,6 +52,9 @@ if (!repoStateColumns.includes('checked_at')) {
   // Backfill from the old scheduling anchor so previously-triaged repos keep a
   // sensible "checked" display until their next interaction refines it.
   db.exec(`UPDATE repo_state SET checked_at = priority_set_at WHERE checked_at IS NULL AND priority_set_at IS NOT NULL`);
+}
+if (!repoStateColumns.includes('snooze_until')) {
+  db.exec(`ALTER TABLE repo_state ADD COLUMN snooze_until TEXT`);
 }
 
 // Free-form, timestamped notices attached to a repo. Many per repo; the newest
@@ -72,5 +84,73 @@ db.exec(`
 `);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_tag_repo ON repo_tag (repo_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_tag_tag ON repo_tag (tag)`);
+
+// Generic boolean flags (pinned, muted, needs-decision, …). One row per
+// (repo, flag); mirrors repo_tag but the key name is 'flag' not 'tag'.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS repo_flag (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id    INTEGER NOT NULL,
+    full_name  TEXT,
+    flag       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (repo_id, flag)
+  );
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_repo_flag_repo ON repo_flag (repo_id)`);
+
+// Key/value store for user preferences (single row keyed to 'board').
+db.exec(`
+  CREATE TABLE IF NOT EXISTS prefs (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+// Key/value store for runtime settings that override .env defaults.
+// Keys: default_inactivity_days, sync_interval_minutes, github_owners.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+// Per-tag review cadence overrides. When a repo carries a matching tag,
+// this days value takes precedence over the global default (but per-repo
+// inactivity_days still wins). Minimum inactivity across all matching tags.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tag_rule (
+    tag        TEXT PRIMARY KEY,
+    days       INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+// Persisted undo entries so bulk-action recovery survives a page reload.
+// Kept to 20 entries total; oldest trimmed on insert.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS undo_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    label      TEXT NOT NULL,
+    ops        TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`);
+
+// Per-mutation audit trail. Kept to 200 rows per repo (oldest trimmed on insert).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activity_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id    INTEGER NOT NULL,
+    full_name  TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    detail     TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS activity_log_repo_id ON activity_log(repo_id);
+`);
 
 export default db;

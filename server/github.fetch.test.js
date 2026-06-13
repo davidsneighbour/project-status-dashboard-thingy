@@ -1,13 +1,31 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { authStatus, fetchAllRepos, parseOwners, rateLimit, sourceStatus } from './github.js';
+import { execFileSync, spawn } from 'node:child_process';
+import { authStatus, enrichRepos, fetchAllRepos, isGhPaginateEnabled, parseOwners, rateLimit, sourceStatus } from './github.js';
 
-// `gh auth token` is shelled out via execFileSync — mock it so it's deterministic.
+// `gh auth token` + enrichRepos use execFileSync; paginateViaGh uses spawn.
 vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(() => {
-    throw new Error('gh not available');
-  }),
+  execFileSync: vi.fn(() => { throw new Error('gh not available'); }),
+  spawn: vi.fn(),
 }));
+
+// Simulate a gh spawn call: emits stdout data then closes.
+function mockSpawnOnce({ stdout = '', stderr = '', code = 0 } = {}) {
+  spawn.mockImplementationOnce(() => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn(() => child.emit('close', 1));
+    child.stdout.setEncoding = vi.fn();
+    child.stderr.setEncoding = vi.fn();
+    process.nextTick(() => {
+      if (stdout) child.stdout.emit('data', stdout);
+      if (stderr) child.stderr.emit('data', stderr);
+      child.emit('close', code);
+    });
+    return child;
+  });
+}
 
 // Build a minimal fetch Response stand-in.
 function makeRes({ status = 200, body = [], headers = {} } = {}) {
@@ -54,13 +72,13 @@ beforeEach(() => {
   authStatus.source = null;
   authStatus.present = false;
   process.env.GITHUB_TOKEN = 'test-token';
-  delete process.env.GITHUB_USERNAME;
   delete process.env.GITHUB_OWNERS;
   // Default: gh has no token; individual tests opt in via mockReturnValueOnce.
   execFileSync.mockReset();
   execFileSync.mockImplementation(() => {
     throw new Error('gh not available');
   });
+  spawn.mockReset();
 });
 
 afterEach(() => {
@@ -328,19 +346,6 @@ describe('fetchAllRepos — configured owners', () => {
     expect(sourceStatus.warnings.join(' ')).toMatch(/Could not load "broken".*500/);
   });
 
-  it('still treats GITHUB_USERNAME as a single-owner alias', async () => {
-    process.env.GITHUB_USERNAME = 'octocat';
-    const fetchMock = routeFetch([
-      ['/orgs/octocat/repos', () => makeRes({ status: 404, body: 'Not Found', headers: RATE_HEADERS })],
-      ['/users/octocat/repos', () => makeRes({ body: [], headers: RATE_HEADERS })],
-      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
-    ]);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await fetchAllRepos();
-    expect(fetchMock.mock.calls.some(([url]) => url.includes('/users/octocat/repos'))).toBe(true);
-  });
-
   it('derives the owner from full_name when the repo has no owner object', async () => {
     process.env.GITHUB_OWNERS = 'octocat';
     const fetchMock = routeFetch([
@@ -438,5 +443,248 @@ describe('fetchAllRepos — configured owners', () => {
     expect(repos).toEqual([]);
     expect(sourceStatus.owners[0]).toMatchObject({ owner: 'secret-org', scope: 'public', count: 0 });
     expect(sourceStatus.warnings.join(' ')).toMatch(/not authorized for organization "secret-org" \(403\)/);
+  });
+});
+
+describe('enrichRepos', () => {
+  const makeRepo = (id, full_name) => ({ id, full_name });
+
+  const graphqlResponse = (repos) => {
+    const data = {};
+    for (const r of repos) {
+      data[`r${r.id}`] = {
+        pullRequests: { totalCount: 2 },
+        releases: { nodes: [{ tagName: 'v1.2.3', publishedAt: '2024-03-01T00:00:00Z' }] },
+        defaultBranchRef: {
+          target: {
+            committedDate: '2024-06-01T12:00:00Z',
+            author: { name: 'Alice' },
+            statusCheckRollup: { state: 'SUCCESS' },
+          },
+        },
+      };
+    }
+    return JSON.stringify({ data });
+  };
+
+  it('returns enrichment data from a successful graphql call', async () => {
+    const repos = [makeRepo(42, 'org/repo')];
+    mockSpawnOnce({ stdout: graphqlResponse(repos) });
+
+    const result = await enrichRepos(repos, 'tok');
+
+    const [, args] = spawn.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['api', 'graphql', '--header', 'Authorization: Bearer tok']));
+    expect(result.get(42)).toEqual({
+      open_prs: 2,
+      latest_release: { tag: 'v1.2.3', published_at: '2024-03-01T00:00:00Z' },
+      last_commit: { date: '2024-06-01T12:00:00Z', author: 'Alice' },
+      ci_status: 'SUCCESS',
+    });
+  });
+
+  it('returns empty map when gh is unavailable', async () => {
+    mockSpawnOnce({ code: 1 });
+    const result = await enrichRepos([makeRepo(1, 'a/b')], 'tok');
+    expect(result.size).toBe(0);
+  });
+
+  it('returns empty map for an empty repo list', async () => {
+    const result = await enrichRepos([], 'tok');
+    expect(result.size).toBe(0);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('handles repos with no release gracefully', async () => {
+    const repos = [makeRepo(7, 'x/y')];
+    mockSpawnOnce({ stdout: JSON.stringify({
+      data: {
+        r7: {
+          pullRequests: { totalCount: 0 },
+          releases: { nodes: [] },
+          defaultBranchRef: null,
+        },
+      },
+    }) });
+    const result = await enrichRepos(repos, 'tok');
+    expect(result.get(7)).toMatchObject({
+      open_prs: 0,
+      latest_release: null,
+      last_commit: null,
+      ci_status: null,
+    });
+  });
+
+  it('batches repos in groups and calls spawn once per batch', async () => {
+    // Build 26 repos so we get 2 batches (25 + 1).
+    const repos = Array.from({ length: 26 }, (_, i) => makeRepo(i + 1, `org/repo${i + 1}`));
+    const batch1 = repos.slice(0, 25);
+    const batch2 = repos.slice(25);
+    mockSpawnOnce({ stdout: graphqlResponse(batch1) });
+    mockSpawnOnce({ stdout: graphqlResponse(batch2) });
+
+    const result = await enrichRepos(repos, 'tok');
+
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(result.size).toBe(26);
+  });
+
+  it('does not pass --header when token is falsy', async () => {
+    const repos = [makeRepo(1, 'a/b')];
+    mockSpawnOnce({ stdout: graphqlResponse(repos) });
+    await enrichRepos(repos, null);
+    const [, args] = spawn.mock.calls[0];
+    expect(args).not.toContain('--header');
+  });
+});
+
+describe('isGhPaginateEnabled', () => {
+  afterEach(() => {
+    delete process.env.PAGINATE_VIA_GH;
+  });
+
+  it('returns false when the env var is unset', () => {
+    delete process.env.PAGINATE_VIA_GH;
+    expect(isGhPaginateEnabled()).toBe(false);
+  });
+
+  it('returns true when set to "true" (case-insensitive)', () => {
+    process.env.PAGINATE_VIA_GH = 'true';
+    expect(isGhPaginateEnabled()).toBe(true);
+    process.env.PAGINATE_VIA_GH = 'TRUE';
+    expect(isGhPaginateEnabled()).toBe(true);
+  });
+
+  it('returns false for any other value', () => {
+    process.env.PAGINATE_VIA_GH = '1';
+    expect(isGhPaginateEnabled()).toBe(false);
+  });
+});
+
+describe('fetchAllRepos — PAGINATE_VIA_GH mode', () => {
+  beforeEach(() => {
+    process.env.PAGINATE_VIA_GH = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env.PAGINATE_VIA_GH;
+  });
+
+  it('calls gh api --paginate for the self repo path when no owners configured', async () => {
+    const ghRepos = [repo({ id: 1, full_name: 'me/r', owner: { login: 'me', type: 'User' } })];
+    mockSpawnOnce({ stdout: JSON.stringify(ghRepos) + '\n' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS })));
+
+    const result = await fetchAllRepos();
+
+    const spawnCall = spawn.mock.calls[0];
+    expect(spawnCall[0]).toBe('gh');
+    expect(spawnCall[1]).toEqual(expect.arrayContaining(['api', '--paginate']));
+    expect(spawnCall[1][2]).toContain('/user/repos');
+    expect(spawnCall[1]).toContain('Authorization: Bearer test-token');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 1, owner: 'me' });
+  });
+
+  it('concatenates multiple page arrays from gh api --paginate output', async () => {
+    const page1 = Array.from({ length: 3 }, (_, i) =>
+      repo({ id: i + 1, full_name: `me/r${i}`, owner: { login: 'me', type: 'User' } })
+    );
+    const page2 = [repo({ id: 10, full_name: 'me/last', owner: { login: 'me', type: 'User' } })];
+    mockSpawnOnce({ stdout: JSON.stringify(page1) + '\n' + JSON.stringify(page2) + '\n' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS })));
+
+    const result = await fetchAllRepos();
+    expect(result).toHaveLength(4);
+  });
+
+  it('throws repoListError when gh exits with a 404 (no-owners path)', async () => {
+    mockSpawnOnce({ stderr: 'error (HTTP 404): Not Found', code: 1 });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(fetchAllRepos()).rejects.toThrow(/GitHub API 404/);
+  });
+
+  it('throws repoListError when gh exits non-zero with no HTTP status in stderr', async () => {
+    mockSpawnOnce({ stderr: '', code: 1 });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(fetchAllRepos()).rejects.toThrow(/GitHub API 500/);
+  });
+
+  it('resolves with empty list when spawn emits error event', async () => {
+    spawn.mockImplementationOnce(() => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn();
+      child.stdout.setEncoding = vi.fn();
+      child.stderr.setEncoding = vi.fn();
+      process.nextTick(() => child.emit('error', new Error('spawn ENOENT')));
+      return child;
+    });
+    vi.stubGlobal('fetch', vi.fn());
+
+    await expect(fetchAllRepos()).rejects.toThrow(/GitHub API 500/);
+  });
+
+  it('refreshes rate-limit via REST after a successful gh sync', async () => {
+    mockSpawnOnce({ stdout: JSON.stringify([]) + '\n' });
+    const fetchMock = vi.fn().mockResolvedValue(makeRes({ body: {}, headers: RATE_HEADERS }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchAllRepos();
+
+    const urls = fetchMock.mock.calls.map(([u]) => u);
+    expect(urls.some((u) => u.includes('/rate_limit'))).toBe(true);
+    expect(rateLimit.remaining).toBe(4990);
+  });
+
+  it('routes org owner through gh api --paginate for the repo list, REST for membership', async () => {
+    process.env.GITHUB_OWNERS = 'my-org';
+    const ghRepos = [repo({ id: 5, full_name: 'my-org/r', owner: { login: 'my-org', type: 'Organization' } })];
+    mockSpawnOnce({ stdout: JSON.stringify(ghRepos) + '\n' });
+
+    const fetchMock = routeFetch([
+      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
+      ['/user/memberships/orgs/my-org', () => makeRes({ body: { state: 'active' }, headers: RATE_HEADERS })],
+      ['/rate_limit', () => makeRes({ body: {}, headers: RATE_HEADERS })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAllRepos();
+
+    const spawnCall = spawn.mock.calls[0];
+    expect(spawnCall[1][2]).toContain('/orgs/my-org/repos');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 5, owner: 'my-org' });
+  });
+
+  it('falls back to user path via gh when org returns 404', async () => {
+    process.env.GITHUB_OWNERS = 'octocat';
+    const ghRepos = [repo({ id: 3, full_name: 'octocat/hello', owner: { login: 'octocat', type: 'User' } })];
+    mockSpawnOnce({ stderr: 'error (HTTP 404): Not Found', code: 1 });  // org path → 404
+    mockSpawnOnce({ stdout: JSON.stringify(ghRepos) + '\n' });           // user path
+
+    const fetchMock = routeFetch([
+      ['/user', () => makeRes({ body: { login: 'me' }, headers: RATE_HEADERS })],
+      ['/rate_limit', () => makeRes({ body: {}, headers: RATE_HEADERS })],
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAllRepos();
+
+    const userCall = spawn.mock.calls[1];
+    expect(userCall[1][2]).toContain('/users/octocat/repos');
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 3 });
+  });
+
+  it('rate-limit refresh failure does not abort the sync', async () => {
+    mockSpawnOnce({ stdout: JSON.stringify([]) + '\n' });
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+
+    // Should resolve, not reject
+    await expect(fetchAllRepos()).resolves.toEqual([]);
   });
 });

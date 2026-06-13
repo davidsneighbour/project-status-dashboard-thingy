@@ -18,6 +18,14 @@ export function BulkBar({ count, actions, columns = [], onClear }) {
     }
   };
 
+  const submitUntag = () => {
+    const v = tag.trim();
+    if (v) {
+      actions.untag(v);
+      setTag('');
+    }
+  };
+
   const btn = 'rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-200 hover:bg-neutral-800';
 
   return (
@@ -75,6 +83,9 @@ export function BulkBar({ count, actions, columns = [], onClear }) {
         />
         <button className={btn} disabled={tag.trim() === ''} onClick={submitTag}>
           Add tag
+        </button>
+        <button className={btn} disabled={tag.trim() === ''} onClick={submitUntag}>
+          Remove tag
         </button>
       </span>
       <button

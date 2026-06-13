@@ -30,7 +30,7 @@ const card = (id, name) => ({
 const payload = {
   repos: [card(1, 'alpha'), card(2, 'beta')],
   cacheReady: true, syncing: false, defaultInactivityDays: 7,
-  lastFetch: '2026-06-03T00:00:00.000Z', username: null, owners: [],
+  lastFetch: '2026-06-03T00:00:00.000Z', owners: [],
   sourceWarnings: [], tokenPresent: true, lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
 };
@@ -92,6 +92,20 @@ describe('multi-select bulk actions', () => {
     await waitFor(() => expect(api.addTag).toHaveBeenCalledTimes(2));
     expect(api.addTag).toHaveBeenCalledWith(1, 'sweep');
     expect(api.addTag).toHaveBeenCalledWith(2, 'sweep');
+  });
+
+  it('bulk-untags every selected repo', async () => {
+    await selectBoth();
+    fireEvent.change(screen.getByLabelText('Bulk tag'), { target: { value: 'old-tag' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove tag' }));
+    await waitFor(() => expect(api.removeTag).toHaveBeenCalledTimes(2));
+    expect(api.removeTag).toHaveBeenCalledWith(1, 'old-tag');
+    expect(api.removeTag).toHaveBeenCalledWith(2, 'old-tag');
+  });
+
+  it('Remove tag button is disabled when tag input is empty', async () => {
+    await selectBoth();
+    expect(screen.getByRole('button', { name: 'Remove tag' })).toBeDisabled();
   });
 
   it('selects every visible repo in a column via the column "select all"', async () => {

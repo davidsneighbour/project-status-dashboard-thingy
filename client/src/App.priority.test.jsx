@@ -26,7 +26,7 @@ const card = (id, name, priority = null) => ({
 const payload = {
   repos: [card(1, 'alpha', 1), card(2, 'beta', 2), card(3, 'gamma', null), card(4, 'delta', 3)],
   cacheReady: true, syncing: false, defaultInactivityDays: 7,
-  lastFetch: '2026-06-03T00:00:00.000Z', username: null, owners: [],
+  lastFetch: '2026-06-03T00:00:00.000Z', owners: [],
   sourceWarnings: [], tokenPresent: true, lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
 };

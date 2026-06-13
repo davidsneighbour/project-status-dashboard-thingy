@@ -38,13 +38,29 @@ cd server && npm install && GITHUB_TOKEN=ghp_... npm run dev
 cd client && npm install && npm run dev
 ```
 
-### Docker (single port)
+### Docker — local build
 
 ```bash
 docker compose --env-file .env up --build
 ```
 
 Open: [http://localhost:8787](http://localhost:8787)
+
+### Docker — production image from GHCR (end-user path)
+
+No local checkout required. Pull the pre-built image published on each release:
+
+```bash
+# download the compose file once
+curl -O https://raw.githubusercontent.com/davidsneighbour/project-dashboard/main/docker-compose.prod.yml
+# create a .env with at minimum GITHUB_TOKEN=ghp_...
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Pin to a specific release with `IMAGE_TAG=1.2.3 docker compose -f docker-compose.prod.yml up -d`.
+
+The image is published to `ghcr.io/davidsneighbour/project-dashboard` automatically
+by `.github/workflows/docker-publish.yml` whenever `npm run release` creates a `v*` tag.
 
 ### Client production build
 
@@ -69,21 +85,22 @@ set in each `vitest.config.js` and fail the run on regression.
 | --- | --- | --- | --- |
 | `GITHUB_TOKEN` | no* | none | Classic token needs `repo` scope for private repos. *If unset, falls back to `gh auth token` (requires `gh auth login`) |
 | `GITHUB_OWNERS` | no | empty | Users/orgs to load. Comma list or JSON array. Blank = token owner's full set. Own login / member orgs include private; other users/orgs are public-only (warning shown) |
-| `GITHUB_USERNAME` | no | empty | Deprecated single-owner alias for `GITHUB_OWNERS` (used only when `GITHUB_OWNERS` is unset) |
 | `DEFAULT_INACTIVITY_DAYS` | no | `7` | Due age in days for Today |
 | `DAY_ROLLOVER_HOUR` | no | `4` | Hour (0-23, local) when "tomorrow" becomes "today" on the board |
 | `SYNC_ON_STARTUP` | no | `true` | Startup GitHub sync |
 | `SYNC_AUTO` | no | `true` | Interval GitHub sync |
 | `SYNC_INTERVAL_MINUTES` | no | `60` | Auto-sync interval, min 1 |
 | `DATA_DIR` | no | `/data` (Docker), `./data` fallback | SQLite directory |
+| `ENRICH_METADATA` | no | `false` | Run per-repo GraphQL enrichment after each sync (open PRs, latest release, last commit, CI status). Requires `gh` CLI to be logged in. Costs rate-limit budget. |
+| `PAGINATE_VIA_GH` | no | `false` | Route repo-list pagination through `gh api --paginate` instead of REST. Org/membership detection stays on REST. Rate-limit state is refreshed via one REST call after each gh sync. |
 
 ## Architecture
 
 ### Backend (`server/`)
 
 * `index.js`: Express app, in-memory `repoCache`, schedule logic (`effectiveState`), sync loop.
-* `github.js`: GitHub API pagination, multi-owner loading (`parseOwners` + per-owner fetch with org-membership detection), auth-invalid detection, rate-limit state parsing, non-fatal `sourceStatus.warnings`.
-* `db.js`: SQLite setup and schema for `repo_state`, `repo_notice`, `repo_tag`.
+* `github.js`: GitHub API pagination, multi-owner loading (`parseOwners` + per-owner fetch with org-membership detection), auth-invalid detection, rate-limit state parsing, non-fatal `sourceStatus.warnings`. `enrichRepos()` runs opt-in per-repo GraphQL enrichment via `gh api graphql` after each sync.
+* `db.js`: SQLite setup and schema for `repo_state`, `repo_notice`, `repo_tag`, `repo_flag`, `prefs`.
 
 ### CLI (`cli/`)
 
@@ -139,6 +156,7 @@ persisted); header shows sync status and GitHub API remaining/limit.
 | POST | `/api/refresh` | Manual GitHub refresh |
 | POST | `/api/repos/:id/check` | Set effective check age via `{ daysAgo }` |
 | POST | `/api/repos/:id/inactivity` | Set per-repo review age override via `{ days }` |
+| POST | `/api/repos/:id/snooze` | One-off snooze via `{ days }`. Resurfaces in N days without changing review cadence. Cleared on check, tap, or clear. |
 | POST | `/api/repos/:id/priority` | Set triage priority via `{ priority: 1\|2\|3\|null }` (independent of scheduling) |
 | POST | `/api/repos/:id/clear` | Clear the scheduling state (anchor + checked_at); keeps priority |
 | POST | `/api/repos/:id/touch` | Reset check timestamp to now |
@@ -146,10 +164,17 @@ persisted); header shows sync status and GitHub API remaining/limit.
 | DELETE | `/api/tags/:tag` | Delete a tag from every repo that carries it |
 | GET | `/api/backup` | Export all triage state (repo_state/notice/tag) as JSON |
 | POST | `/api/restore` | Replace all triage state from a backup payload (transactional) |
+| POST | `/api/repos/:id/gh/open` | Open repo in browser via `gh repo view --web` |
+| GET | `/api/repos/:id/gh/prs` | List open PRs via `gh pr list` |
+| POST | `/api/repos/:id/gh/issue` | Create GitHub issue via `gh issue create`; body `{ title, body }` |
+| GET | `/api/settings` | Read effective settings (env defaults + DB overrides: defaultInactivityDays, syncIntervalMinutes, githubOwners) |
+| PUT | `/api/settings` | Write runtime setting overrides; unknown keys stripped; owners change triggers re-sync |
+| GET | `/api/prefs` | Read persisted view/display prefs blob (density, sort, view, groupBy, fields, filters, showIgnored) |
+| PUT | `/api/prefs` | Write view/display prefs blob (unknown keys stripped) |
 
 ## Implementation constraints
 
 * No TypeScript.
-* Tailwind class names must remain static strings.
+* Tailwind class names are static strings (no dynamic construction).
 * Keep the test suites green; add/adjust tests alongside behaviour changes.
 * Do not cache GitHub repo list to disk.

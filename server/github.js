@@ -1,9 +1,21 @@
-import { execFileSync } from 'node:child_process';
+/**
+ * @module github
+ * @description GitHub REST API client: multi-owner repository fetching,
+ *   rate-limit tracking, per-repo GraphQL enrichment via `gh api graphql`,
+ *   and token resolution from `GITHUB_TOKEN` env or `gh auth token`.
+ */
+import { execFileSync, spawn } from 'node:child_process';
 
 const GITHUB_API = 'https://api.github.com';
 
 // ---- Shared rate-limit state -----------------------------------------------
 // Exported so server/index.js can include it in every API response.
+/**
+ * Shared rate-limit state updated after every GitHub API response.
+ * Included verbatim in `GET /api/repos` so the UI can show remaining quota.
+ *
+ * @type {{ limit: number|null, remaining: number|null, used: number|null, reset: number|null, lastChecked: string|null, authInvalid: boolean }}
+ */
 export const rateLimit = {
   limit: null,       // total requests allowed per window
   remaining: null,   // requests remaining in current window
@@ -16,17 +28,33 @@ export const rateLimit = {
 // ---- Per-sync source diagnostics -------------------------------------------
 // Reset at the start of every fetchAllRepos() and surfaced to the UI so the
 // user can see which owners loaded and any non-fatal access warnings.
+/**
+ * Per-sync source diagnostics reset at the start of every `fetchAllRepos()`.
+ *
+ * @type {{ owners: Array<{owner: string|null, count: number, scope: string}>, warnings: string[] }}
+ */
 export const sourceStatus = {
   owners: [],   // [{ owner, count, scope }] — scope: self|member|public|error
   warnings: [], // human-readable, non-fatal messages (e.g. org access fell back to public)
 };
 
-// Which credential the last token resolution used, surfaced in /api/repos.
+/**
+ * Which credential the last `resolveToken()` call used; surfaced in `/api/repos`.
+ *
+ * @type {{ source: 'env'|'gh'|null, present: boolean }}
+ */
 export const authStatus = {
   source: null,   // 'env' (GITHUB_TOKEN) | 'gh' (gh auth token) | null
   present: false, // whether a usable token was resolved
 };
 
+/**
+ * Parses GitHub rate-limit response headers into `target` (defaults to the
+ * shared {@link rateLimit} singleton). Safe to call on any response.
+ *
+ * @param {object} res - Fetch response (or any object with a `headers.get(key)` method).
+ * @param {object} [target=rateLimit] - Object to write the parsed values into.
+ */
 export function parseRateLimitHeaders(res, target = rateLimit) {
   const h = (k) => res.headers.get(k);
   if (h('x-ratelimit-limit') !== null) target.limit = Number(h('x-ratelimit-limit'));
@@ -37,9 +65,15 @@ export function parseRateLimitHeaders(res, target = rateLimit) {
 }
 
 /**
- * Parse the configured owner list. Accepts either a comma/space separated
- * string ("a, b c") or a JSON array string ('["a","b"]'). Returns a
- * de-duplicated (case-insensitive) array of owner logins in input order.
+ * Parses the configured owner list from `GITHUB_OWNERS` (or a raw string).
+ * Accepts a comma/space-separated string (`"a, b c"`) or a JSON array
+ * (`'["a","b"]'`). Returns a de-duplicated, case-preserving array in input order.
+ *
+ * @param {string|null|undefined} raw - Raw owner list string.
+ * @returns {string[]} Parsed, de-duplicated owner logins.
+ * @example
+ * parseOwners('davidsneighbour, dnbhq');     // ['davidsneighbour', 'dnbhq']
+ * parseOwners('["foo","foo","bar"]');         // ['foo', 'bar']
  */
 export function parseOwners(raw) {
   if (raw == null) return [];
@@ -68,8 +102,13 @@ export function parseOwners(raw) {
   return out;
 }
 
-// Ask the GitHub CLI for the user's token. Returns null if gh is missing, not
-// logged in, or errors — so resolveToken can fall through cleanly.
+/**
+ * Asks the GitHub CLI (`gh auth token`) for the authenticated user's token.
+ * Returns `null` if `gh` is missing, not logged in, or exits non-zero — so
+ * {@link resolveToken} can fall through to the "no token" path cleanly.
+ *
+ * @returns {string|null} The token string, or `null` on failure.
+ */
 export function ghAuthToken() {
   try {
     const out = execFileSync('gh', ['auth', 'token'], {
@@ -84,8 +123,12 @@ export function ghAuthToken() {
   }
 }
 
-// Prefer an explicit GITHUB_TOKEN; otherwise reuse the user's `gh` login so no
-// PAT is needed when they've already run `gh auth login`.
+/**
+ * Resolves the best available GitHub token. Prefers `GITHUB_TOKEN` env; falls
+ * back to `gh auth token` so no PAT is needed when `gh auth login` is active.
+ *
+ * @returns {{ token: string|null, source: 'env'|'gh'|null }} Token and its source.
+ */
 export function resolveToken() {
   const env = (process.env.GITHUB_TOKEN || '').trim();
   if (env) return { token: env, source: 'env' };
@@ -160,12 +203,100 @@ async function paginateRepos(makeUrl, headers) {
   return { ok: true, status: 200, repos: out };
 }
 
+/**
+ * Whether to route repo-list pagination through `gh api --paginate` instead
+ * of REST. Reads the env var at call time so tests can toggle it without
+ * re-importing the module.
+ *
+ * @returns {boolean}
+ */
+export function isGhPaginateEnabled() {
+  return (process.env.PAGINATE_VIA_GH || '').toLowerCase() === 'true';
+}
+
+// Paginate via `gh api --paginate`. Returns same { ok, status, repos } shape
+// as paginateRepos. gh outputs one JSON array per page on its own line; we
+// concatenate them. Runs async (spawn) so the event loop is not blocked.
+function paginateViaGh(ghPath, token) {
+  const args = ['api', '--paginate', ghPath];
+  if (token) args.push('--header', `Authorization: Bearer ${token}`);
+  return new Promise((resolve) => {
+    const child = spawn('gh', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      settle({ ok: false, status: 500, repos: [] });
+    }, 60000);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => {
+      if (code !== 0) {
+        const m = stderr.match(/HTTP (\d{3})/);
+        settle({ ok: false, status: m ? Number(m[1]) : 500, repos: [] });
+        return;
+      }
+      const repos = [];
+      for (const line of stdout.split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          const parsed = JSON.parse(t);
+          if (Array.isArray(parsed)) repos.push(...parsed);
+        } catch { /* skip malformed line */ }
+      }
+      settle({ ok: true, status: 200, repos });
+    });
+    child.on('error', () => settle({ ok: false, status: 500, repos: [] }));
+  });
+}
+
+// Run `gh <args>` and resolve with its full stdout string. Rejects on non-zero
+// exit, spawn error, or timeout. Used by enrichRepos for single-shot GraphQL calls.
+function spawnGhText(args, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('gh', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    let settled = false;
+    const settle = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      settle(() => reject(new Error('gh timeout')));
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('close', (code) => {
+      if (code !== 0) settle(() => reject(new Error(`gh exited ${code}`)));
+      else settle(() => resolve(stdout));
+    });
+    child.on('error', (err) => settle(() => reject(err)));
+  });
+}
+
 const selfReposUrl = (page, perPage) =>
   `${GITHUB_API}/user/repos?per_page=${perPage}&page=${page}&affiliation=owner&visibility=all&sort=full_name`;
 const orgReposUrl = (owner) => (page, perPage) =>
   `${GITHUB_API}/orgs/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=all&sort=full_name`;
 const userReposUrl = (owner) => (page, perPage) =>
   `${GITHUB_API}/users/${encodeURIComponent(owner)}/repos?per_page=${perPage}&page=${page}&type=owner&sort=full_name`;
+
+const selfReposGhPath = '/user/repos?per_page=100&affiliation=owner&visibility=all&sort=full_name';
+const orgReposGhPath = (owner) => `/orgs/${encodeURIComponent(owner)}/repos?per_page=100&type=all&sort=full_name`;
+const userReposGhPath = (owner) => `/users/${encodeURIComponent(owner)}/repos?per_page=100&type=owner&sort=full_name`;
 
 // Is the authenticated token a member of this org? 200 = member, anything else
 // (404 not-a-member, 403 forbidden) = no, so we only see public repos.
@@ -177,17 +308,23 @@ async function isOrgMember(owner, headers) {
 }
 
 // Resolve one configured owner to a list of repos, recording warnings when we
-// can only reach public repositories.
-async function fetchOwnerRepos(owner, viewerLogin, headers) {
+// can only reach public repositories. When PAGINATE_VIA_GH is enabled, repo
+// list pages go through `gh api --paginate`; org/membership detection stays
+// on REST so the 404/403 status-sensitive logic is unaffected.
+async function fetchOwnerRepos(owner, viewerLogin, token, headers) {
   // The token's own account → use /user/repos so private repos are included.
   if (viewerLogin && owner.toLowerCase() === viewerLogin) {
-    const r = await paginateRepos(selfReposUrl, headers);
+    const r = await (isGhPaginateEnabled()
+      ? paginateViaGh(selfReposGhPath, token)
+      : paginateRepos(selfReposUrl, headers));
     if (!r.ok) throw repoListError(r);
     return { repos: r.repos, scope: 'self' };
   }
 
   // Try the org endpoint first (exposes private org repos when authorized).
-  const orgRes = await paginateRepos(orgReposUrl(owner), headers);
+  const orgRes = await (isGhPaginateEnabled()
+    ? paginateViaGh(orgReposGhPath(owner), token)
+    : paginateRepos(orgReposUrl(owner), headers));
 
   if (orgRes.ok) {
     const member = await isOrgMember(owner, headers);
@@ -202,7 +339,9 @@ async function fetchOwnerRepos(owner, viewerLogin, headers) {
 
   // Not an org (404) → it's a user account; load their public repos.
   if (orgRes.status === 404) {
-    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    const userRes = await (isGhPaginateEnabled()
+      ? paginateViaGh(userReposGhPath(owner), token)
+      : paginateRepos(userReposUrl(owner), headers));
     if (!userRes.ok) throw repoListError(userRes);
     return { repos: userRes.repos, scope: 'public' };
   }
@@ -212,14 +351,16 @@ async function fetchOwnerRepos(owner, viewerLogin, headers) {
     sourceStatus.warnings.push(
       `Token is not authorized for organization "${owner}" (403) — loaded its public repositories only.`
     );
-    const userRes = await paginateRepos(userReposUrl(owner), headers);
+    const userRes = await (isGhPaginateEnabled()
+      ? paginateViaGh(userReposGhPath(owner), token)
+      : paginateRepos(userReposUrl(owner), headers));
     return { repos: userRes.ok ? userRes.repos : [], scope: 'public' };
   }
 
   throw repoListError(orgRes);
 }
 
-async function fetchConfiguredOwners(owners, headers) {
+async function fetchConfiguredOwners(owners, token, headers) {
   // The viewer's login lets us pull private repos for the token owner itself.
   let viewerLogin = null;
   const meRes = await ghGet(`${GITHUB_API}/user`, headers);
@@ -231,7 +372,7 @@ async function fetchConfiguredOwners(owners, headers) {
   const byId = new Map();
   for (const owner of owners) {
     try {
-      const { repos, scope } = await fetchOwnerRepos(owner, viewerLogin, headers);
+      const { repos, scope } = await fetchOwnerRepos(owner, viewerLogin, token, headers);
       for (const r of repos) byId.set(r.id, r);
       sourceStatus.owners.push({ owner, count: repos.length, scope });
     } catch (e) {
@@ -271,17 +412,113 @@ function mapRepo(r) {
   };
 }
 
+// ---- Per-repo enrichment via gh api graphql --------------------------------
+// Opt-in (ENRICH_METADATA=true). Runs after the repo list is fetched; the
+// results live in memory alongside repoCache and are merged into buildPayload.
+
+const ENRICH_BATCH = 25;
+
+function buildEnrichQuery(repos) {
+  const fragment = `
+    pullRequests(states: OPEN) { totalCount }
+    releases(first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes { tagName publishedAt }
+    }
+    defaultBranchRef {
+      target {
+        ... on Commit {
+          committedDate
+          author { name }
+          statusCheckRollup { state }
+        }
+      }
+    }`;
+  const parts = repos.map((r) => {
+    const [owner, name] = r.full_name.split('/');
+    return `r${r.id}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${fragment} }`;
+  });
+  return `query { ${parts.join('\n')} }`;
+}
+
+function parseEnrichData(data, repos) {
+  const out = new Map();
+  for (const r of repos) {
+    const node = data[`r${r.id}`];
+    if (!node) continue;
+    out.set(r.id, {
+      open_prs: node.pullRequests?.totalCount ?? null,
+      latest_release: node.releases?.nodes?.[0]
+        ? { tag: node.releases.nodes[0].tagName, published_at: node.releases.nodes[0].publishedAt }
+        : null,
+      last_commit: node.defaultBranchRef?.target?.committedDate
+        ? { date: node.defaultBranchRef.target.committedDate, author: node.defaultBranchRef.target.author?.name ?? null }
+        : null,
+      ci_status: node.defaultBranchRef?.target?.statusCheckRollup?.state ?? null,
+    });
+  }
+  return out;
+}
+
 /**
- * Fetch repositories for the dashboard.
+ * Enriches a repo list with per-repo GraphQL data by batching up to 25 repos
+ * per `gh api graphql` call. Fields added per repo:
  *
- * - No GITHUB_OWNERS / GITHUB_USERNAME: the authenticated token owner's repos,
- *   including private + archived.
- * - One or more owners configured (comma list or JSON array via GITHUB_OWNERS,
- *   or a single GITHUB_USERNAME): each is loaded individually — the token
- *   owner's own login pulls private repos; orgs you belong to pull private +
- *   public; orgs you don't, and plain users, pull public only (with a warning).
+ * | Field | Type | Description |
+ * |---|---|---|
+ * | `open_prs` | `number\|null` | Distinct open pull-request count |
+ * | `latest_release` | `{tag, published_at}\|null` | Most recent release tag |
+ * | `last_commit` | `{date, author}\|null` | Default-branch last commit |
+ * | `ci_status` | `'SUCCESS'\|'FAILURE'\|'ERROR'\|'PENDING'\|null` | Default-branch CI rollup |
+ *
+ * Batches that fail (gh unavailable, permission denied, JSON parse error) are
+ * skipped silently so the board never hard-errors.
+ *
+ * @param {object[]} repos - Mapped repo objects with `id` and `full_name`.
+ * @param {string|null} token - GitHub token to pass via `--header`. If falsy, gh's own auth is used.
+ * @returns {Map<number, {open_prs: number|null, latest_release: object|null, last_commit: object|null, ci_status: string|null}>}
  */
-export async function fetchAllRepos() {
+export async function enrichRepos(repos, token) {
+  const out = new Map();
+  if (!repos.length) return out;
+  for (let i = 0; i < repos.length; i += ENRICH_BATCH) {
+    const batch = repos.slice(i, i + ENRICH_BATCH);
+    const query = buildEnrichQuery(batch);
+    try {
+      const args = ['api', 'graphql'];
+      if (token) args.push('--header', `Authorization: Bearer ${token}`);
+      args.push('-f', `query=${query}`);
+      const raw = await spawnGhText(args, 30000);
+      const parsed = JSON.parse(raw);
+      if (parsed?.data) {
+        for (const [id, val] of parseEnrichData(parsed.data, batch)) {
+          out.set(id, val);
+        }
+      }
+    } catch {
+      // gh unavailable, query failed, or JSON parse error — skip this batch
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetches repositories for the dashboard, respecting `GITHUB_OWNERS`.
+ *
+ * - **No `GITHUB_OWNERS`**: loads the token owner's full repo set (including
+ *   private + archived) via `/user/repos`.
+ * - **One or more owners** (comma list or JSON array): each owner is resolved
+ *   individually — the token owner's own login pulls private repos; orgs the
+ *   token belongs to pull private + public; other orgs and plain users pull
+ *   public only (a warning is added to {@link sourceStatus}).
+ *
+ * Updates {@link rateLimit}, {@link sourceStatus}, and {@link authStatus} as a
+ * side-effect.
+ *
+ * @returns {Promise<object[]>} Array of mapped repo objects (see `mapRepo`).
+ * @throws {Error} If no token is available, the token is invalid (401), or the
+ *   rate limit is exhausted (403 with `remaining=0`).
+ */
+export async function fetchAllRepos(ownersOverride = undefined) {
   const { token, source } = resolveToken();
   authStatus.source = source;
   authStatus.present = Boolean(token);
@@ -297,16 +534,28 @@ export async function fetchAllRepos() {
   sourceStatus.owners = [];
   sourceStatus.warnings = [];
 
-  const owners = parseOwners(process.env.GITHUB_OWNERS ?? process.env.GITHUB_USERNAME);
+  const owners = ownersOverride !== undefined
+    ? (Array.isArray(ownersOverride) ? ownersOverride : parseOwners(String(ownersOverride ?? '')))
+    : parseOwners(process.env.GITHUB_OWNERS);
 
   let raw;
   if (owners.length === 0) {
-    const r = await paginateRepos(selfReposUrl, headers);
+    const r = await (isGhPaginateEnabled()
+      ? paginateViaGh(selfReposGhPath, token)
+      : paginateRepos(selfReposUrl, headers));
     if (!r.ok) throw repoListError(r);
     raw = r.repos;
     sourceStatus.owners.push({ owner: null, count: raw.length, scope: 'self' });
   } else {
-    raw = await fetchConfiguredOwners(owners, headers);
+    raw = await fetchConfiguredOwners(owners, token, headers);
+  }
+
+  // gh api --paginate doesn't update rateLimit headers; do one REST probe.
+  if (isGhPaginateEnabled()) {
+    try {
+      const rl = await ghGet(`${GITHUB_API}/rate_limit`, headers);
+      if (rl.ok) parseRateLimitHeaders(rl);
+    } catch { /* best effort — don't fail the sync */ }
   }
 
   // A clean fetch proves the token is valid.

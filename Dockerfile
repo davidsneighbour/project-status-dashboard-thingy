@@ -1,5 +1,8 @@
 # ---- Stage 1: build the React client --------------------------------------
-FROM node:22-bookworm-slim AS client-build
+FROM cgr.dev/chainguard/node:latest-dev AS client-build
+# Chainguard images default to nonroot; root is needed so COPY + npm install
+# can write into the working directory.
+USER root
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm install
@@ -7,14 +10,12 @@ COPY client/ ./
 RUN npm run build
 
 # ---- Stage 2: server runtime ----------------------------------------------
-FROM node:22-bookworm-slim AS server
+FROM cgr.dev/chainguard/node:latest-dev AS server
+USER root
 WORKDIR /app/server
 
-# build tools so better-sqlite3 can compile its native binding if no prebuilt
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-
+# better-sqlite3 ships a prebuilt glibc binary for Node 22+, so no build
+# tools (python3/make/gcc) are needed here — prebuild-install handles it.
 COPY server/package*.json ./
 RUN npm install --omit=dev
 COPY server/ ./
@@ -27,4 +28,5 @@ ENV PORT=8787
 ENV DATA_DIR=/data
 EXPOSE 8787
 VOLUME ["/data"]
-CMD ["node", "index.js"]
+# Chainguard node image sets ENTRYPOINT ["/usr/bin/node"]; only pass the script.
+CMD ["index.js"]

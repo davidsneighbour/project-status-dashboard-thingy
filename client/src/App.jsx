@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { api } from './api.js';
 import { timeAgo, calendarLabel } from './lib/date.js';
 import { defaultFilters, filterRepos, buildDayColumns, groupRepos, groupReposBy, collectTags, SORT_KEYS, GROUP_BY_KEYS } from './lib/board.js';
@@ -14,6 +14,7 @@ import { Toast } from './components/Toast.jsx';
 import { HelpDialog } from './components/HelpDialog.jsx';
 import { NoticesDialog } from './components/NoticesDialog.jsx';
 import { ReportsDialog } from './components/ReportsDialog.jsx';
+import { SettingsDialog } from './components/SettingsDialog.jsx';
 import { TagFilter } from './components/TagFilter.jsx';
 import { PriorityFilter } from './components/PriorityFilter.jsx';
 import { FieldsMenu } from './components/FieldsMenu.jsx';
@@ -34,6 +35,7 @@ export default function App() {
   const MoreIcon = ICON.more;
   const ListIcon = ICON.list;
   const BoardIcon = ICON.board;
+  const SettingsIcon = ICON.settings;
 
   const [data, setData] = useState(() => readBoardCache() ?? EMPTY_DATA);
   const [loading, setLoading] = useState(() => !readBoardCache());
@@ -56,6 +58,10 @@ export default function App() {
   // Independent priority filter: a list of selected levels (1|2|3, 0 = none).
   const [priorityFilter, setPriorityFilter] = useState([]);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [remoteSettings, setRemoteSettings] = useState(null);
+  const [tagRules, setTagRules] = useState([]);
+  const [lastExport, setLastExport] = useState(null);
   // Mobile overflow: the collapsed toolbar controls live in a bottom action sheet.
   const [actionsOpen, setActionsOpen] = useState(false);
 
@@ -218,14 +224,62 @@ export default function App() {
     startViewTransition(() => setView(next));
   };
 
-  const showToast = useCallback((message, undo = null) => setToast({ message, undo }), []);
+  // ---- Server-side prefs sync -----------------------------------------------
+  // Tracks whether we've finished the one-time GET from /api/prefs (success or
+  // error). The write-back effect is gated on this flag to avoid overwriting
+  // server-side prefs with stale localStorage values on the very first render.
+  const [serverPrefsLoaded, setServerPrefsLoaded] = useState(false);
+
+  useEffect(() => {
+    api.getPrefs?.()
+      ?.then((d) => {
+        if (d?.prefs) {
+          const p = d.prefs;
+          if (p.density != null) setDensity(p.density === 'compact' ? 'compact' : 'comfortable');
+          if (p.sort != null) setSortKey(SORT_KEYS.includes(p.sort) ? p.sort : 'manual');
+          if (p.view != null) setView(p.view === 'list' ? 'list' : 'board');
+          if (p.groupBy != null) setGroupBy(GROUP_BY_KEYS.includes(p.groupBy) ? p.groupBy : 'day');
+          if (p.fields != null && typeof p.fields === 'object') setFields({ ...DEFAULT_FIELDS, ...p.fields });
+          if (p.filters != null && typeof p.filters === 'object') setFilters({ ...defaultFilters, ...p.filters });
+          if (p.showIgnored != null) setShowIgnored(Boolean(p.showIgnored));
+        }
+        setServerPrefsLoaded(true);
+      })
+      ?.catch(() => setServerPrefsLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!serverPrefsLoaded) return;
+    api.putPrefs?.({ density, sort: sortKey, view, groupBy, fields, filters, showIgnored })?.catch(() => {});
+  }, [serverPrefsLoaded, density, sortKey, view, groupBy, fields, filters, showIgnored]);
+
+  // Tracks the undo_log entry ID for the currently-shown toast (if persisted).
+  const pendingUndoIdRef = useRef(null);
+
+  const showToast = useCallback((message, undo = null, ops = null) => {
+    pendingUndoIdRef.current = null;
+    setToast({ message, undo });
+    if (ops?.length) {
+      api.createUndo?.(message, ops)
+        .then(({ id }) => { pendingUndoIdRef.current = id; })
+        .catch(() => {});
+    }
+  }, []);
 
   // Auto-dismiss the toast after a few seconds (re-armed whenever it changes).
   useEffect(() => {
     if (!toast) return undefined;
-    const t = setTimeout(() => setToast(null), 6000);
+    const t = setTimeout(() => {
+      const undoId = pendingUndoIdRef.current;
+      pendingUndoIdRef.current = null;
+      if (undoId) api.discardUndo?.(undoId).catch(() => {});
+      setToast(null);
+    }, 6000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  const lastLoadAt = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -246,12 +300,45 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+      lastLoadAt.current = Date.now();
     }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Steady-state 30-second poll. Skipped if a load (including mutation-triggered
+  // reloads) happened within the last 10 seconds to avoid double-fetching after
+  // user actions.
+  useEffect(() => {
+    const POLL_MS = 30_000;
+    const DEBOUNCE_MS = 10_000;
+    const t = setInterval(() => {
+      if (Date.now() - lastLoadAt.current >= DEBOUNCE_MS) load();
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  // On startup, restore the most recent persisted undo entry (< 5 min old).
+  useEffect(() => {
+    api.getUndoLog?.().then(({ entries }) => {
+      if (!entries?.length) return;
+      const e = entries[0];
+      if (Date.now() - new Date(e.created_at).getTime() > 5 * 60 * 1000) return;
+      pendingUndoIdRef.current = e.id;
+      setToast({
+        message: e.label,
+        undoHandlesCleanup: true,
+        undo: () => api.executeUndo(e.id).then(() => {
+          pendingUndoIdRef.current = null;
+          load();
+        }),
+      });
+    }).catch(() => {});
+  // Intentionally runs once on mount — load is stable after mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Poll while the backend is still warming up its cache or actively syncing,
   // so a background GitHub fetch (startup or queued "sync") fills the board in
@@ -273,6 +360,7 @@ export default function App() {
         setHelpOpen(false);
         setNoticesScope(null);
         setReportsOpen(false);
+        setSettingsOpen(false);
       }
     };
 
@@ -293,6 +381,21 @@ export default function App() {
     }
   };
 
+  const openSettings = () => {
+    api.getSettings().then((d) => setRemoteSettings(d)).catch(() => {});
+    api.getTagRules().then((d) => setTagRules(d.rules ?? [])).catch(() => {});
+    api.getLastExport?.().then((d) => setLastExport(d.lastExport ?? null)).catch(() => {});
+    setSettingsOpen(true);
+  };
+
+  const saveSettings = async (values) => {
+    await api.putSettings(values);
+    const d = await api.getSettings();
+    setRemoteSettings(d);
+    setSettingsOpen(false);
+    await load();
+  };
+
   // Card-facing handlers are wrapped in useCallback so their identity is stable
   // across re-renders. That lets the memoised RepoCard skip re-rendering when an
   // unrelated bit of state (e.g. a selection toggle) changes — keeping selection
@@ -300,16 +403,25 @@ export default function App() {
   const mutate = useCallback((fn) => fn().then(load), [load]);
 
   const onSetChecked = useCallback((id, daysAgo = 0) => mutate(() => api.setChecked(id, daysAgo)), [mutate]);
-  const onClearCheck = useCallback((id) => mutate(() => api.clearSchedule(id)), [mutate]);
+  const onClearCheck = useCallback(
+    (id) => {
+      const repo = data.repos.find((r) => r.id === id);
+      const prioritySetAt = repo?.priority_set_at ?? null;
+      const checkedAt = repo?.checked_at ?? null;
+      const result = mutate(() => api.clearSchedule(id));
+      showToast(
+        'Check cleared',
+        () => mutate(() => api.restoreState(id, prioritySetAt, checkedAt)),
+        [{ type: 'restoreState', repoId: id, fullName: repo?.full_name ?? null, prioritySetAt, checkedAt }]
+      );
+      return result;
+    },
+    [mutate, data.repos, showToast]
+  );
   const onSetPriority = useCallback((id, priority) => mutate(() => api.setPriority(id, priority)), [mutate]);
   const onSetInactivity = useCallback((id, days) => mutate(() => api.setInactivity(id, days)), [mutate]);
-  // "Mark done for N days" from the mobile move sheet. See issue #17: the final
-  // mapping is a one-off `snooze_until`; until that lands this approximates it
-  // with check-now + a per-repo review-interval override (option B), which
-  // resurfaces the repo in N days at the cost of (temporarily) changing its
-  // review cadence. The MoveSheet's UI contract — a single field — is unaffected.
   const onSnooze = useCallback(
-    (id, days) => api.setChecked(id, 0).then(() => api.setInactivity(id, days)).then(load),
+    (id, days) => api.snooze(id, days).then(load),
     [load]
   );
   const onSetIgnored = useCallback(
@@ -317,17 +429,26 @@ export default function App() {
       const result = mutate(() => api.setIgnored(id, ignored));
       // Ignoring hides the repo — offer a one-click undo. (Unignoring needs none.)
       if (ignored) {
-        const name = data.repos.find((r) => r.id === id)?.name ?? 'repo';
-        showToast(`Ignored ${name}`, () => mutate(() => api.setIgnored(id, false)));
+        const repo = data.repos.find((r) => r.id === id);
+        const name = repo?.name ?? 'repo';
+        showToast(
+          `Ignored ${name}`,
+          () => mutate(() => api.setIgnored(id, false)),
+          [{ type: 'setIgnored', repoId: id, fullName: repo?.full_name ?? null, ignored: false }]
+        );
       }
       return result;
     },
     [mutate, data.repos, showToast]
   );
   const onAddNotice = useCallback((id, body) => mutate(() => api.addNotice(id, body)), [mutate]);
+  const onGhPrs = useCallback((id) => api.ghPrs(id), []);
+  const onGhCreateIssue = useCallback((id, title, body) => api.ghCreateIssue(id, title, body), []);
   const onViewNotices = useCallback((scope) => setNoticesScope(scope), []);
   const onAddTag = useCallback((id, tag) => mutate(() => api.addTag(id, tag)), [mutate]);
   const onRemoveTag = useCallback((id, tag) => mutate(() => api.removeTag(id, tag)), [mutate]);
+  const onAddFlag = useCallback((id, flag) => mutate(() => api.addFlag(id, flag)), [mutate]);
+  const onRemoveFlag = useCallback((id, flag) => mutate(() => api.removeFlag(id, flag)), [mutate]);
   // Delete a tag from every repo that carries it (from the tag-filter dropdown).
   const onDeleteTag = useCallback((tag) => mutate(() => api.deleteTag(tag)), [mutate]);
   const onToggleMenu = useCallback((id, intent = null) => {
@@ -374,12 +495,21 @@ export default function App() {
     clear: () => bulkApply((id) => api.clearSchedule(id)),
     ignore: () => {
       const ids = [...selectedIds];
+      const repoMap = Object.fromEntries(data.repos.map((r) => [r.id, r.full_name]));
       const result = bulkApply((id) => api.setIgnored(id, true));
-      if (ids.length) showToast(`${ids.length} repo${ids.length === 1 ? '' : 's'} ignored`, () => bulkUnignore(ids));
+      if (ids.length) {
+        const ops = ids.map((id) => ({ type: 'setIgnored', repoId: id, fullName: repoMap[id] ?? null, ignored: false }));
+        showToast(
+          `${ids.length} repo${ids.length === 1 ? '' : 's'} ignored`,
+          () => bulkUnignore(ids),
+          ops
+        );
+      }
       return result;
     },
     unignore: () => bulkApply((id) => api.setIgnored(id, false)),
     tag: (tag) => bulkApply((id) => api.addTag(id, tag)),
+    untag: (tag) => bulkApply((id) => api.removeTag(id, tag)),
   };
 
   const onDragStartCard = useCallback((e, id) => {
@@ -460,8 +590,6 @@ export default function App() {
     ? data.owners.length <= 3
       ? data.owners.map((o, i) => <span key={o}>{i > 0 ? ', ' : ''}{ownerLink(o)}</span>)
       : `${data.owners.length} owners`
-    : data.username
-    ? ownerLink(data.username)
     : 'authenticated user';
 
   // Single polite live-region message; screen readers announce it on change.
@@ -512,11 +640,15 @@ export default function App() {
     onViewNotices,
     onAddTag,
     onRemoveTag,
+    onAddFlag,
+    onRemoveFlag,
     selectedIds,
     onToggleSelect,
     onSelectMany,
     allTags,
     defaultInactivity: data.defaultInactivityDays,
+    onGhPrs,
+    onGhCreateIssue,
   };
 
   // The inclusive own/forks/archived filter pills. Rendered inline in the
@@ -679,6 +811,14 @@ export default function App() {
           )}
           {data.lastFetch && <span className="text-[11px] text-neutral-600">synced {timeAgo(data.lastFetch)}</span>}
           <button
+            onClick={openSettings}
+            className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+            aria-label="Open settings"
+          >
+            <SettingsIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            Settings
+          </button>
+          <button
             onClick={() => setHelpOpen(true)}
             className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
             aria-label="Open help"
@@ -713,7 +853,7 @@ export default function App() {
             onClick={() => setActionsOpen(true)}
             aria-label="More filters and options"
             aria-haspopup="dialog"
-            className="ml-auto flex min-h-[44px] items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 hover:bg-neutral-800"
+            className="ml-auto flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 text-xs text-neutral-200 hover:bg-neutral-800"
           >
             <MoreIcon className="h-4 w-4" aria-hidden="true" />
             filters
@@ -730,8 +870,8 @@ export default function App() {
         <MobileActionSheet title="Filters & options" onClose={() => setActionsOpen(false)}>
           {/* Bump relocated controls to the ≥44px mobile touch target (DESIGN.md
               → Touch targets) without altering the shared desktop fragments. */}
-          <div className="flex flex-wrap items-center gap-2 [&_button]:min-h-[44px] [&_label]:min-h-[44px] [&_select]:min-h-[44px]">{filterPills}</div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-3 [&_button]:min-h-[44px] [&_label]:min-h-[44px] [&_select]:min-h-[44px]">{optionControls}</div>
+          <div className="flex flex-wrap items-center gap-2 [&_button]:min-h-11 [&_label]:min-h-11 [&_select]:min-h-11">{filterPills}</div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-neutral-800 pt-3 [&_button]:min-h-11 [&_label]:min-h-11 [&_select]:min-h-11">{optionControls}</div>
         </MobileActionSheet>
       )}
 
@@ -814,6 +954,18 @@ export default function App() {
         )}
       </main>
 
+      {settingsOpen && (
+        <SettingsDialog
+          settings={remoteSettings?.settings}
+          defaults={remoteSettings?.defaults}
+          tagRules={tagRules}
+          lastExport={lastExport}
+          onSave={saveSettings}
+          onTagRuleSave={(tag, days) => api.putTagRule(tag, days).then(() => api.getTagRules()).then((d) => { setTagRules(d.rules ?? []); load(); })}
+          onTagRuleDelete={(tag) => api.deleteTagRule(tag).then(() => api.getTagRules()).then((d) => { setTagRules(d.rules ?? []); load(); })}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
       {reportsOpen && <ReportsDialog onClose={() => setReportsOpen(false)} />}
       {noticesScope != null && (
@@ -823,13 +975,36 @@ export default function App() {
           onClose={() => setNoticesScope(null)}
           onScopeChange={setNoticesScope}
           onChanged={load}
+          onDeleted={(notice) =>
+            notice &&
+            showToast('Notice deleted', () =>
+              mutate(() => api.addNotice(notice.repo_id, notice.body, notice.created_at))
+            )
+          }
         />
       )}
       {toast && (
         <Toast
           message={toast.message}
-          onUndo={toast.undo ? () => { toast.undo(); setToast(null); } : undefined}
-          onDismiss={() => setToast(null)}
+          onUndo={toast.undo ? () => {
+            // Grab and clear the ref before async work starts to prevent the
+            // auto-dismiss timer from also calling discardUndo concurrently.
+            const undoId = pendingUndoIdRef.current;
+            pendingUndoIdRef.current = null;
+            toast.undo();
+            // In-session toasts: undo is a closure; discard the persisted entry.
+            // Startup-recovery toasts: undo calls executeUndo which already deletes.
+            if (undoId && !toast.undoHandlesCleanup) {
+              api.discardUndo?.(undoId).catch(() => {});
+            }
+            setToast(null);
+          } : undefined}
+          onDismiss={() => {
+            const undoId = pendingUndoIdRef.current;
+            pendingUndoIdRef.current = null;
+            if (undoId) api.discardUndo?.(undoId).catch(() => {});
+            setToast(null);
+          }}
         />
       )}
     </div>

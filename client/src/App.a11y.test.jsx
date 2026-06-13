@@ -1,3 +1,4 @@
+import { axe } from 'jest-axe';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
@@ -8,6 +9,7 @@ vi.mock('./api.js', () => ({
     list: vi.fn(),
     refresh: vi.fn(),
     setPriority: vi.fn(),
+    clearSchedule: vi.fn(),
     setChecked: vi.fn(),
     touch: vi.fn(),
     setInactivity: vi.fn(),
@@ -16,8 +18,18 @@ vi.mock('./api.js', () => ({
     addNotice: vi.fn(),
     addTag: vi.fn(),
     removeTag: vi.fn(),
+    reportKinds: vi.fn(),
+    report: vi.fn(),
+    allNotices: vi.fn(),
+    repoNotices: vi.fn(),
   },
 }));
+
+// jsdom can't compute styles, so color-contrast rules produce false positives.
+const axeConfig = {
+  runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] },
+  rules: { 'color-contrast': { enabled: false } },
+};
 
 const payload = {
   repos: [
@@ -28,7 +40,7 @@ const payload = {
     },
   ],
   cacheReady: true, syncing: false, defaultInactivityDays: 7, lastFetch: '2026-06-03T00:00:00.000Z',
-  username: null, owners: [], sourceWarnings: [], tokenPresent: true, lastError: null,
+  owners: [], sourceWarnings: [], tokenPresent: true, lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
 };
 
@@ -84,5 +96,68 @@ describe('dialog accessibility', () => {
     fireEvent.keyDown(menu, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
+  });
+});
+
+describe('axe automated a11y (wcag2a + wcag2aa)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    api.list.mockResolvedValue(payload);
+    api.reportKinds.mockResolvedValue({ kinds: ['summary', 'overdue'] });
+    api.report.mockResolvedValue({ rows: [] });
+    api.allNotices.mockResolvedValue({ notices: [] });
+  });
+
+  it('board view has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('list view has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to list view' }));
+    await screen.findByRole('table');
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('help dialog has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open help' }));
+    await screen.findByRole('dialog');
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('card menu dialog has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open repository settings' }));
+    await screen.findByRole('dialog', { name: /Settings for alpha/ });
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('reports dialog has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'reports' }));
+    await screen.findByRole('dialog');
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('notices dialog has no violations', async () => {
+    const { container } = render(<App />);
+    await screen.findByRole('link', { name: 'alpha' });
+    fireEvent.click(screen.getByRole('button', { name: 'notices' }));
+    await screen.findByRole('dialog');
+    const results = await axe(container, axeConfig);
+    expect(results).toHaveNoViolations();
   });
 });

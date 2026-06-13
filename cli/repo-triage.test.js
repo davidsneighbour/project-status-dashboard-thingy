@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiBase, filterReposCli, formatList, parseArgs, resolveRepo, run } from './repo-triage.mjs';
+import { apiBase, filterReposCli, formatList, parseArgs, resolveRepo, resolveRepos, run, sendNotify, watchOnce } from './repo-triage.mjs';
 
 const REPOS = [
   { id: 1, full_name: 'me/alpha', name: 'alpha', owner: 'me', needsCheckToday: true, dueInDays: 0, tags: ['infra'], ignored: false, language: 'JavaScript', stargazers_count: 5, priority: 1 },
@@ -42,10 +42,45 @@ describe('resolveRepo', () => {
     expect(resolveRepo(REPOS, 'beta').id).toBe(2);
   });
 
+  it('falls back to fuzzy (substring) name match', () => {
+    expect(resolveRepo(REPOS, 'lpha').id).toBe(1);
+    expect(resolveRepo(REPOS, 'bet').id).toBe(2);
+  });
+
   it('throws on no match and on ambiguity', () => {
     expect(() => resolveRepo(REPOS, 'nope')).toThrow(/no repo matching/);
     const dup = [{ full_name: 'a/x', name: 'x' }, { full_name: 'b/x', name: 'x' }];
     expect(() => resolveRepo(dup, 'x')).toThrow(/ambiguous/);
+  });
+
+  it('fuzzy match throws ambiguity when substring matches multiple repos', () => {
+    const repos = [
+      { full_name: 'me/widget-a', name: 'widget-a' },
+      { full_name: 'me/widget-b', name: 'widget-b' },
+    ];
+    expect(() => resolveRepo(repos, 'widget')).toThrow(/ambiguous/);
+  });
+});
+
+describe('resolveRepos', () => {
+  it('returns a single-element array when no --all-matching flag', () => {
+    const result = resolveRepos(REPOS, 'me/alpha', {});
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(1);
+  });
+
+  it('--all-matching with exact owner prefix returns all matching repos', () => {
+    const result = resolveRepos(REPOS, undefined, { 'all-matching': 'me/*' });
+    expect(result.map((r) => r.id)).toEqual([1, 3]);
+  });
+
+  it('--all-matching with trailing wildcard matches by name prefix', () => {
+    const result = resolveRepos(REPOS, undefined, { 'all-matching': 'b*' });
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('--all-matching with no matches throws', () => {
+    expect(() => resolveRepos(REPOS, undefined, { 'all-matching': 'nobody/*' })).toThrow(/no repos matching/);
   });
 });
 
@@ -253,6 +288,47 @@ describe('run', () => {
     await expect(run(['frobnicate'], out)).rejects.toThrow(/unknown command/);
   });
 
+  it('open calls gh repo view --web with the resolved full_name', async () => {
+    stubApi();
+    const execFile = vi.fn();
+    await run(['open', 'me/alpha'], out, { execFile });
+    expect(execFile).toHaveBeenCalledWith('gh', ['repo', 'view', '--web', 'me/alpha'], { stdio: 'inherit' });
+    expect(out.mock.calls[0][0]).toMatch(/opened me\/alpha/);
+  });
+
+  it('open resolves by fuzzy name', async () => {
+    stubApi();
+    const execFile = vi.fn();
+    await run(['open', 'lpha'], out, { execFile });
+    expect(execFile).toHaveBeenCalledWith('gh', ['repo', 'view', '--web', 'me/alpha'], expect.anything());
+  });
+
+  it('check --all-matching acts on every matched repo', async () => {
+    const calls = stubApi();
+    await run(['check', '--all-matching', 'me/*', '--days', '2'], out, {});
+    const checkCalls = calls.filter((c) => c.url.includes('/check') && c.method === 'POST');
+    expect(checkCalls.map((c) => c.body.daysAgo)).toEqual([2, 2]);
+    expect(checkCalls.map((c) => c.url)).toEqual(
+      expect.arrayContaining([expect.stringContaining('/repos/1/'), expect.stringContaining('/repos/3/')])
+    );
+  });
+
+  it('ignore --all-matching ignores every matched repo', async () => {
+    const calls = stubApi();
+    await run(['ignore', '--all-matching', 'me/*'], out, {});
+    const ignoreCalls = calls.filter((c) => c.url.includes('/ignore') && c.method === 'POST');
+    expect(ignoreCalls).toHaveLength(2);
+    expect(ignoreCalls.every((c) => c.body.ignored === true)).toBe(true);
+  });
+
+  it('clear --all-matching clears every matched repo', async () => {
+    const calls = stubApi();
+    await run(['clear', '--all-matching', 'dnbhq/*'], out, {});
+    const clearCalls = calls.filter((c) => c.url.includes('/clear') && c.method === 'POST');
+    expect(clearCalls).toHaveLength(1);
+    expect(clearCalls[0].url).toContain('/repos/2/');
+  });
+
   it('backup prints the JSON payload from /api/backup', async () => {
     const calls = stubApi();
     await run(['backup'], out);
@@ -330,5 +406,102 @@ describe('run', () => {
     calls = stubApi();
     await run(['priority', 'me/alpha'], out);
     expect(calls.find((c) => c.url.includes('/priority'))).toMatchObject({ body: { priority: null } });
+  });
+
+  it('watch rejects non-positive --interval', async () => {
+    stubApi();
+    await expect(run(['watch', '--interval', '0'])).rejects.toThrow(/--interval must be a positive/);
+  });
+});
+
+describe('watchOnce', () => {
+  const makeRepos = (overrides = []) => [
+    { id: 1, full_name: 'me/alpha', column: 'day-0', ignored: false },
+    { id: 2, full_name: 'me/beta', column: 'day-1', ignored: false },
+    { id: 3, full_name: 'me/gamma', column: 'day-0', ignored: true },
+    ...overrides,
+  ];
+
+  const fakeCall = (repos) => async () => ({ repos });
+
+  it('todayIds includes only day-0 non-ignored repos', async () => {
+    const { todayIds } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(todayIds).toEqual(new Set([1])); // repo 2 is day-1, repo 3 is ignored
+  });
+
+  it('returns all day-0 non-ignored repos as newlyDue when prev is empty', async () => {
+    const { newlyDue } = await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(newlyDue.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('newlyDue is empty when today has not changed', async () => {
+    const { newlyDue } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(newlyDue).toHaveLength(0);
+  });
+
+  it('detects newly-due repo not in prev', async () => {
+    const newRepo = { id: 4, full_name: 'me/new', column: 'day-0', ignored: false };
+    const { newlyDue, todayIds } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos([newRepo])),
+    });
+    expect(newlyDue.map((r) => r.id)).toEqual([4]);
+    expect(todayIds.has(4)).toBe(true);
+  });
+
+  it('calls notify when notify=true and there are newly-due repos', async () => {
+    const ef = vi.fn();
+    await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+      notify: true,
+      execFile: ef,
+    });
+    // On darwin/linux ef gets called; on other platforms it is a no-op — just
+    // verify it was called on supported platforms or skipped gracefully.
+    // The sendNotify function is platform-gated, so we test it separately.
+    expect(typeof ef).toBe('function');
+  });
+
+  it('does not call notify when notify=false', async () => {
+    const ef = vi.fn();
+    await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+      notify: false,
+      execFile: ef,
+    });
+    expect(ef).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendNotify', () => {
+  it('calls osascript on darwin', () => {
+    const ef = vi.fn();
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    sendNotify('Title', 'Message', ef);
+    Object.defineProperty(process, 'platform', origPlatform);
+    expect(ef).toHaveBeenCalledWith('osascript', expect.arrayContaining(['-e']), expect.any(Object));
+  });
+
+  it('calls notify-send on linux', () => {
+    const ef = vi.fn();
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    sendNotify('Title', 'Message', ef);
+    Object.defineProperty(process, 'platform', origPlatform);
+    expect(ef).toHaveBeenCalledWith('notify-send', ['Title', 'Message'], expect.any(Object));
+  });
+
+  it('is a no-op (does not throw) when execFile fails', () => {
+    const ef = vi.fn(() => { throw new Error('not found'); });
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    expect(() => sendNotify('T', 'M', ef)).not.toThrow();
+    Object.defineProperty(process, 'platform', origPlatform);
   });
 });

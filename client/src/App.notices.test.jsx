@@ -17,6 +17,7 @@ vi.mock('./api.js', () => ({
     repoNotices: vi.fn(),
     allNotices: vi.fn(),
     deleteNotice: vi.fn(),
+    getActivity: vi.fn(),
   },
 }));
 
@@ -58,7 +59,6 @@ const payload = {
   cacheReady: true,
   defaultInactivityDays: 7,
   lastFetch: '2026-06-03T00:00:00.000Z',
-  username: 'user',
   tokenPresent: true,
   lastError: null,
   rateLimit: { remaining: 1000, limit: 5000, used: 4000, authInvalid: false },
@@ -73,6 +73,7 @@ describe('ignore flag + notices UI', () => {
     api.addNotice.mockResolvedValue({ ok: true, id: 9 });
     api.deleteNotice.mockResolvedValue({ ok: true });
     api.repoNotices.mockResolvedValue({ notices: [] });
+    api.getActivity.mockResolvedValue({ activity: [] });
     api.allNotices.mockResolvedValue({
       notices: [
         { id: 11, repo_id: 1, full_name: 'user/repo-a', body: 'alpha note', created_at: '2026-06-01T00:00:00.000Z' },

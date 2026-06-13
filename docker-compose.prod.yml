@@ -1,0 +1,33 @@
+# Production compose file — pulls a pre-built image from GHCR.
+# No local checkout or build required.
+#
+# Usage:
+#   curl -O https://raw.githubusercontent.com/davidsneighbour/project-dashboard/main/docker-compose.prod.yml
+#   cp .env.example .env   # fill in GITHUB_TOKEN
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# The image tag defaults to "latest" (the most recent release).
+# Pin to a specific version with:
+#   IMAGE_TAG=1.2.3 docker compose -f docker-compose.prod.yml up -d
+
+services:
+  repo-dashboard:
+    image: ghcr.io/davidsneighbour/project-dashboard:${IMAGE_TAG:-latest}
+    container_name: repo-dashboard
+    ports:
+      - "8787:8787"
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      DEFAULT_INACTIVITY_DAYS: ${DEFAULT_INACTIVITY_DAYS:-7}
+      DAY_ROLLOVER_HOUR: ${DAY_ROLLOVER_HOUR:-4}
+      GITHUB_OWNERS: ${GITHUB_OWNERS:-}
+      SYNC_ON_STARTUP: ${SYNC_ON_STARTUP:-true}
+      SYNC_AUTO: ${SYNC_AUTO:-true}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-60}
+      ENRICH_METADATA: ${ENRICH_METADATA:-false}
+      PAGINATE_VIA_GH: ${PAGINATE_VIA_GH:-false}
+      PORT: 8787
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
