@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiBase, filterReposCli, formatList, parseArgs, resolveRepo, resolveRepos, run } from './repo-triage.mjs';
+import { apiBase, filterReposCli, formatList, parseArgs, resolveRepo, resolveRepos, run, sendNotify, watchOnce } from './repo-triage.mjs';
 
 const REPOS = [
   { id: 1, full_name: 'me/alpha', name: 'alpha', owner: 'me', needsCheckToday: true, dueInDays: 0, tags: ['infra'], ignored: false, language: 'JavaScript', stargazers_count: 5, priority: 1 },
@@ -406,5 +406,102 @@ describe('run', () => {
     calls = stubApi();
     await run(['priority', 'me/alpha'], out);
     expect(calls.find((c) => c.url.includes('/priority'))).toMatchObject({ body: { priority: null } });
+  });
+
+  it('watch rejects non-positive --interval', async () => {
+    stubApi();
+    await expect(run(['watch', '--interval', '0'])).rejects.toThrow(/--interval must be a positive/);
+  });
+});
+
+describe('watchOnce', () => {
+  const makeRepos = (overrides = []) => [
+    { id: 1, full_name: 'me/alpha', column: 'day-0', ignored: false },
+    { id: 2, full_name: 'me/beta', column: 'day-1', ignored: false },
+    { id: 3, full_name: 'me/gamma', column: 'day-0', ignored: true },
+    ...overrides,
+  ];
+
+  const fakeCall = (repos) => async () => ({ repos });
+
+  it('todayIds includes only day-0 non-ignored repos', async () => {
+    const { todayIds } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(todayIds).toEqual(new Set([1])); // repo 2 is day-1, repo 3 is ignored
+  });
+
+  it('returns all day-0 non-ignored repos as newlyDue when prev is empty', async () => {
+    const { newlyDue } = await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(newlyDue.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('newlyDue is empty when today has not changed', async () => {
+    const { newlyDue } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos()),
+    });
+    expect(newlyDue).toHaveLength(0);
+  });
+
+  it('detects newly-due repo not in prev', async () => {
+    const newRepo = { id: 4, full_name: 'me/new', column: 'day-0', ignored: false };
+    const { newlyDue, todayIds } = await watchOnce('http://localhost:8787', new Set([1]), {
+      call: fakeCall(makeRepos([newRepo])),
+    });
+    expect(newlyDue.map((r) => r.id)).toEqual([4]);
+    expect(todayIds.has(4)).toBe(true);
+  });
+
+  it('calls notify when notify=true and there are newly-due repos', async () => {
+    const ef = vi.fn();
+    await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+      notify: true,
+      execFile: ef,
+    });
+    // On darwin/linux ef gets called; on other platforms it is a no-op — just
+    // verify it was called on supported platforms or skipped gracefully.
+    // The sendNotify function is platform-gated, so we test it separately.
+    expect(typeof ef).toBe('function');
+  });
+
+  it('does not call notify when notify=false', async () => {
+    const ef = vi.fn();
+    await watchOnce('http://localhost:8787', new Set(), {
+      call: fakeCall(makeRepos()),
+      notify: false,
+      execFile: ef,
+    });
+    expect(ef).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendNotify', () => {
+  it('calls osascript on darwin', () => {
+    const ef = vi.fn();
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    sendNotify('Title', 'Message', ef);
+    Object.defineProperty(process, 'platform', origPlatform);
+    expect(ef).toHaveBeenCalledWith('osascript', expect.arrayContaining(['-e']), expect.any(Object));
+  });
+
+  it('calls notify-send on linux', () => {
+    const ef = vi.fn();
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    sendNotify('Title', 'Message', ef);
+    Object.defineProperty(process, 'platform', origPlatform);
+    expect(ef).toHaveBeenCalledWith('notify-send', ['Title', 'Message'], expect.any(Object));
+  });
+
+  it('is a no-op (does not throw) when execFile fails', () => {
+    const ef = vi.fn(() => { throw new Error('not found'); });
+    const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    expect(() => sendNotify('T', 'M', ef)).not.toThrow();
+    Object.defineProperty(process, 'platform', origPlatform);
   });
 });

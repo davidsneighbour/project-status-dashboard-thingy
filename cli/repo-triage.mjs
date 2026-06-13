@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { readFileSync } from 'node:fs';
 
-const VALUE_FLAGS = new Set(['api', 'days', 'owner', 'tag', 'language', 'lang', 'format', 'all-matching']);
+const VALUE_FLAGS = new Set(['api', 'days', 'interval', 'owner', 'tag', 'language', 'lang', 'format', 'all-matching']);
 
 // ---- pure helpers (unit-tested) -------------------------------------------
 
@@ -270,6 +270,10 @@ Commands:
                               Print a report. Kinds: summary, due,
                               never-reviewed, stale, owners, languages,
                               archived, active, weekly
+  watch [--interval N] [--notify]
+                              Poll Today column; print newly-due repos.
+                              N defaults to 60 (seconds). --notify fires an
+                              OS notification (osascript / notify-send).
   backup                      Print all local triage state as JSON (redirect it)
   restore  <file.json>        Replace all triage state from a backup file
   help
@@ -279,6 +283,42 @@ Add --all-matching <glob> to any repo command to act on every matching repo
   e.g.  repo-triage check --all-matching "me/*" --days 1
         repo-triage ignore --all-matching "*/archived-*"
 The server must be running; override its URL with --api or REPO_TRIAGE_API.`;
+
+// Fire an OS desktop notification if a suitable tool is available.
+function sendNotify(title, message, execFile = execFileSync) {
+  try {
+    if (process.platform === 'darwin') {
+      const script = `display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`;
+      execFile('osascript', ['-e', script], { stdio: 'ignore', timeout: 3000 });
+    } else if (process.platform === 'linux') {
+      execFile('notify-send', [title, message], { stdio: 'ignore', timeout: 3000 });
+    } else if (process.platform === 'win32') {
+      const ps = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('${message.replace(/'/g, "''")}','${title.replace(/'/g, "''")}')`;
+      execFile('powershell', ['-Command', ps], { stdio: 'ignore', timeout: 5000 });
+    }
+  } catch { /* notification failure is non-fatal */ }
+}
+
+/**
+ * One watch poll iteration. Fetches /api/repos, diffs Today against previousIds.
+ *
+ * @param {string} base - API base URL
+ * @param {Set<number>} previousIds - Repo IDs that were in Today on the prior poll
+ * @param {{ notify?: boolean, execFile?: Function, call?: Function }} opts
+ * @returns {Promise<{ newlyDue: object[], todayIds: Set<number> }>}
+ */
+export async function watchOnce(base, previousIds, opts = {}) {
+  const { notify = false, execFile: ef = execFileSync, call: callFn } = opts;
+  const callImpl = callFn ?? call;
+  const { repos } = await callImpl(base, 'GET', '/api/repos');
+  const today = repos.filter((r) => r.column === 'day-0' && !r.ignored);
+  const todayIds = new Set(today.map((r) => r.id));
+  const newlyDue = today.filter((r) => !previousIds.has(r.id));
+  if (notify && newlyDue.length > 0) {
+    sendNotify('Repo Triage', `${newlyDue.length} repo${newlyDue.length > 1 ? 's' : ''} due for review`, ef);
+  }
+  return { newlyDue, todayIds };
+}
 
 // ---- commands -------------------------------------------------------------
 
@@ -414,12 +454,37 @@ async function run(argv, out = console.log, { execFile = execFileSync } = {}) {
       out(`added note to ${repo.full_name}`);
       return 0;
     }
+    case 'watch': {
+      const intervalSecs = Number(flags.interval ?? 60);
+      if (!Number.isFinite(intervalSecs) || intervalSecs < 1) {
+        throw new Error('--interval must be a positive number of seconds');
+      }
+      const notify = Boolean(flags.notify);
+      out(`Watching for newly-due repos every ${intervalSecs}s (Ctrl+C to stop)...`);
+      // Establish baseline without printing anything.
+      let { todayIds } = await watchOnce(base, new Set(), { notify: false, execFile });
+      /* v8 ignore start */
+      setInterval(async () => {
+        try {
+          const result = await watchOnce(base, todayIds, { notify, execFile });
+          for (const r of result.newlyDue) {
+            out(`[${new Date().toISOString().slice(0, 19)}] due: ${r.full_name}`);
+          }
+          todayIds = result.todayIds;
+        } catch (e) {
+          out(`[poll error] ${e.message}`);
+        }
+      }, intervalSecs * 1000);
+      await new Promise(() => {}); // run until Ctrl+C
+      /* v8 ignore stop */
+      return 0;
+    }
     default:
       throw new Error(`unknown command "${command}". Try: repo-triage help`);
   }
 }
 
-export { run };
+export { run, sendNotify };
 
 // ---- entrypoint -----------------------------------------------------------
 // Bootstrap-only: exercised when run as a binary, not when imported by tests.
