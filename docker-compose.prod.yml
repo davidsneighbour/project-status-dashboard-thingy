@@ -17,7 +17,9 @@ services:
     ports:
       - "8787:8787"
     environment:
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # Set GITHUB_TOKEN in .env or export it before running.
+      # If using gh CLI on the host: export GITHUB_TOKEN=$(gh auth token)
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       DEFAULT_INACTIVITY_DAYS: ${DEFAULT_INACTIVITY_DAYS:-7}
       DAY_ROLLOVER_HOUR: ${DAY_ROLLOVER_HOUR:-4}
       GITHUB_OWNERS: ${GITHUB_OWNERS:-}
@@ -30,7 +32,4 @@ services:
       DATA_DIR: /data
     volumes:
       - ./data:/data
-      # Optional: mount host gh CLI config so GITHUB_TOKEN can be omitted when
-      # `gh auth login` is active on the host. Remove if using GITHUB_TOKEN.
-      # - ${GH_CONFIG_DIR:-~/.config/gh}:/root/.config/gh:ro
     restart: unless-stopped

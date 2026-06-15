@@ -33,6 +33,8 @@
     "test:coverage:cli": "npm --prefix cli run test:coverage",
     "test:e2e": "npm --prefix e2e run test",
     "test:e2e:ui": "npm --prefix e2e run test:ui",
+    "docker:up": "GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth token 2>/dev/null)} docker compose up",
+    "docker:build": "GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth token 2>/dev/null)} docker compose up --build",
     "release": "release-it",
     "release:dry": "release-it --dry-run",
     "docs:api": "jsdoc -c jsdoc.config.json",

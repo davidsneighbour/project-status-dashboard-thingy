@@ -6,6 +6,11 @@ services:
       - "8787:8787"
     environment:
       # These are interpolated from --env-file (e.g. ~/.env) at `up` time.
+      # If GITHUB_TOKEN is unset, the server falls back to `gh auth token`.
+      # On Linux, gh stores the token in the system keyring (not the config
+      # file), so the container's gh cannot reach it. Easiest fix:
+      #   export GITHUB_TOKEN=$(gh auth token)   # then docker compose up
+      # Or use the npm wrapper: npm run docker:up
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       DEFAULT_INACTIVITY_DAYS: ${DEFAULT_INACTIVITY_DAYS:-7}
       PORT: 8787
@@ -13,7 +18,4 @@ services:
     volumes:
       # SQLite DB persists here on the host across container rebuilds
       - ./data:/data
-      # Mount host gh CLI config so `gh auth token` works without GITHUB_TOKEN.
-      # Remove this line if you set GITHUB_TOKEN explicitly in .env.
-      - ${GH_CONFIG_DIR:-~/.config/gh}:/root/.config/gh:ro
     restart: unless-stopped
