@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.2](https://github.com/davidsneighbour/project-dashboard/compare/v3.0.1...v3.0.2) (2026-06-15)
+
+### Bug fixes
+
+* **docker:** install gh CLI and mount host config so auth token fallback works ([0e0ddd2](https://github.com/davidsneighbour/project-dashboard/commit/0e0ddd2d0df0c16c175a4ff9be6bad1d0e3077d5))
+
 ## [3.0.1](https://github.com/davidsneighbour/project-dashboard/compare/v3.0.0...v3.0.1) (2026-06-15)
 
 ### Bug fixes
