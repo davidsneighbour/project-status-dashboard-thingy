@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.3](https://github.com/davidsneighbour/project-dashboard/compare/v3.0.2...v3.0.3) (2026-06-15)
+
+### Bug fixes
+
+* **docker:** resolve gh token from host keyring via npm wrapper scripts ([3745452](https://github.com/davidsneighbour/project-dashboard/commit/3745452f04ca629c403ac8dda1f5a434da3c2c1b))
+
 ## [3.0.2](https://github.com/davidsneighbour/project-dashboard/compare/v3.0.1...v3.0.2) (2026-06-15)
 
 ### Bug fixes
