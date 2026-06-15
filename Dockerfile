@@ -14,6 +14,10 @@ FROM cgr.dev/chainguard/node:latest-dev AS server
 USER root
 WORKDIR /app/server
 
+# gh CLI is used for: token fallback (gh auth token), repo enrichment
+# (ENRICH_METADATA=true), and paginated fetches (PAGINATE_VIA_GH=true).
+RUN apk add --no-cache github-cli
+
 # better-sqlite3 ships a prebuilt glibc binary for Node 22+, so no build
 # tools (python3/make/gcc) are needed here — prebuild-install handles it.
 COPY server/package*.json ./

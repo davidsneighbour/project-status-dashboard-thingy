@@ -6,11 +6,14 @@ services:
       - "8787:8787"
     environment:
       # These are interpolated from --env-file (e.g. ~/.env) at `up` time.
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       DEFAULT_INACTIVITY_DAYS: ${DEFAULT_INACTIVITY_DAYS:-7}
       PORT: 8787
       DATA_DIR: /data
     volumes:
       # SQLite DB persists here on the host across container rebuilds
       - ./data:/data
+      # Mount host gh CLI config so `gh auth token` works without GITHUB_TOKEN.
+      # Remove this line if you set GITHUB_TOKEN explicitly in .env.
+      - ${GH_CONFIG_DIR:-~/.config/gh}:/root/.config/gh:ro
     restart: unless-stopped

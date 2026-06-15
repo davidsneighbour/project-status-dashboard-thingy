@@ -30,4 +30,7 @@ services:
       DATA_DIR: /data
     volumes:
       - ./data:/data
+      # Optional: mount host gh CLI config so GITHUB_TOKEN can be omitted when
+      # `gh auth login` is active on the host. Remove if using GITHUB_TOKEN.
+      # - ${GH_CONFIG_DIR:-~/.config/gh}:/root/.config/gh:ro
     restart: unless-stopped
